@@ -1,0 +1,23 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "bionic-inventory",
+	"compatibility_date": "2026-08-08",
+	"compatibility_flags": [
+		"nodejs_als"
+	],
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "bionic-inventory",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"preview_database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"workers_dev": true,
+	"preview_urls": true
+}
