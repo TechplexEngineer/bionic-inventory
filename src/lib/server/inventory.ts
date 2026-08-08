@@ -99,7 +99,7 @@ export function getSearchQuery(url: URL): string | undefined {
 }
 
 export function getLimit(url: URL, fallback = 50, max = 200): number {
-	const rawLimit = Number(url.searchParams.get('limit') ?? fallback);
+	const rawLimit = Number(url.searchParams.get('limit')?.trim() || fallback);
 
 	if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
 		throw new InventoryRouteError('The "limit" query parameter must be a positive integer.', 400);
@@ -341,14 +341,13 @@ export async function listHistory(
 		.from(inventoryChanges)
 		.innerJoin(parts, eq(inventoryChanges.partId, parts.id));
 
-	const rows = options.partId
-		? await baseQuery
-				.where(eq(inventoryChanges.partId, options.partId))
-				.orderBy(desc(inventoryChanges.recordedAt), desc(inventoryChanges.createdAt))
-				.limit(options.limit ?? 50)
-		: await baseQuery
-				.orderBy(desc(inventoryChanges.recordedAt), desc(inventoryChanges.createdAt))
-				.limit(options.limit ?? 50);
+	const filteredQuery = options.partId
+		? baseQuery.where(eq(inventoryChanges.partId, options.partId))
+		: baseQuery;
+
+	const rows = await filteredQuery
+		.orderBy(desc(inventoryChanges.recordedAt), desc(inventoryChanges.createdAt))
+		.limit(options.limit ?? 50);
 
 	return rows.map((row) => ({
 		...row,

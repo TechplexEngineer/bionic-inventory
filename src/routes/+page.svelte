@@ -5,7 +5,7 @@
 		return data.parts.reduce((sum, part) => sum + part.quantity, 0);
 	}
 
-	function lowStockParts() {
+	function outOfStockParts() {
 		return data.parts.filter((part) => part.quantity <= 0).length;
 	}
 
@@ -84,7 +84,7 @@
 			<div class="card h-100 shadow-sm">
 				<div class="card-body">
 					<p class="text-uppercase text-body-secondary small mb-2">Out of stock / negative</p>
-					<p class="display-6 mb-0">{lowStockParts()}</p>
+					<p class="display-6 mb-0">{outOfStockParts()}</p>
 				</div>
 			</div>
 		</div>
