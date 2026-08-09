@@ -1,0 +1,68 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure D1 binding IDs
+        env:
+          CLOUDFLARE_DATABASE_ID: ${{ secrets.CLOUDFLARE_DATABASE_ID }}
+        run: |
+          perl -0pi -e 's/00000000-0000-0000-0000-000000000000/$ENV{CLOUDFLARE_DATABASE_ID}/g' wrangler.jsonc
+
+      - name: Validate app
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Worker
+        run: npm run build
+
+      - name: Upload Worker secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PRODUCER_API_TOKENS: ${{ secrets.PRODUCER_API_TOKENS }}
+          CONSUMER_API_TOKENS: ${{ secrets.CONSUMER_API_TOKENS }}
+        run: |
+          cat <<'EOF' >/tmp/cloudflare-worker-secrets.json
+          {
+            "PRODUCER_API_TOKENS": "${PRODUCER_API_TOKENS}",
+            "CONSUMER_API_TOKENS": "${CONSUMER_API_TOKENS}"
+          }
+          EOF
+          npx wrangler secret bulk /tmp/cloudflare-worker-secrets.json
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy

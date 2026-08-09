@@ -38,6 +38,20 @@ npm test
 npm run dev
 ```
 
+## GitHub Actions deployment
+
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy.yml` that validates the app and deploys it to Cloudflare Workers on pushes to `main` or when manually triggered.
+
+Add these repository secrets before enabling the workflow:
+
+- `CLOUDFLARE_API_TOKEN` - Cloudflare API token with Workers Scripts edit access and D1 edit access
+- `CLOUDFLARE_ACCOUNT_ID` - Cloudflare account ID for the target Workers account
+- `CLOUDFLARE_DATABASE_ID` - D1 database ID used for the `DB` binding in `wrangler.jsonc`
+- `PRODUCER_API_TOKENS` - comma-separated write tokens for the deployed Worker
+- `CONSUMER_API_TOKENS` - comma-separated read tokens for the deployed Worker
+
+The workflow injects the D1 database ID into `wrangler.jsonc` during the run and uploads the API token values to Cloudflare as Worker secrets before publishing.
+
 ## Database schema
 
 - `parts` stores each unique part, description, and free-form JSON metadata.
