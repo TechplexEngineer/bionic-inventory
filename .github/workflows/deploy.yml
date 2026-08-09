@@ -52,12 +52,20 @@ jobs:
           PRODUCER_API_TOKENS: ${{ secrets.PRODUCER_API_TOKENS }}
           CONSUMER_API_TOKENS: ${{ secrets.CONSUMER_API_TOKENS }}
         run: |
-          cat <<'EOF' >/tmp/cloudflare-worker-secrets.json
-          {
-            "PRODUCER_API_TOKENS": "${PRODUCER_API_TOKENS}",
-            "CONSUMER_API_TOKENS": "${CONSUMER_API_TOKENS}"
-          }
-          EOF
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          
+          Path("/tmp/cloudflare-worker-secrets.json").write_text(
+              json.dumps(
+                  {
+                      "PRODUCER_API_TOKENS": os.environ["PRODUCER_API_TOKENS"],
+                      "CONSUMER_API_TOKENS": os.environ["CONSUMER_API_TOKENS"],
+                  }
+              )
+          )
+          PY
           npx wrangler secret bulk /tmp/cloudflare-worker-secrets.json
 
       - name: Deploy Worker

@@ -25,7 +25,7 @@ cp .env.example .env
 - `PRODUCER_API_TOKENS` - comma-separated write tokens
 - `CONSUMER_API_TOKENS` - comma-separated read tokens
 
-Update `wrangler.jsonc` with the real D1 database IDs before deploying.
+Update `wrangler.jsonc` with the real D1 database IDs before deploying locally, or provide `CLOUDFLARE_DATABASE_ID` to the GitHub Actions workflow.
 
 ## Local commands
 
