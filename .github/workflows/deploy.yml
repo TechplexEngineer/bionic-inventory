@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: cloudflare-deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -67,6 +67,7 @@ jobs:
           )
           PY
           npx wrangler secret bulk /tmp/cloudflare-worker-secrets.json
+          rm /tmp/cloudflare-worker-secrets.json
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
