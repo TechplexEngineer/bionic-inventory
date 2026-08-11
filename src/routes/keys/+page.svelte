@@ -58,7 +58,7 @@
 				<h4 class="alert-heading h5 mb-0 fw-bold">API Key Created Successfully</h4>
 			</div>
 			<p class="mb-3 text-secondary-emphasis">Please copy this API key now. Pass it in your API requests using the <code>Authorization: Bearer &lt;token&gt;</code> or <code>X-API-Token: &lt;token&gt;</code> header.</p>
-			
+
 			<div class="input-group">
 				<input type="text" class="form-control font-monospace fw-bold" readonly value={form.createdKey.key} />
 				<button class="btn btn-success fw-semibold" type="button" onclick={() => copyToClipboard(form.createdKey.key)}>

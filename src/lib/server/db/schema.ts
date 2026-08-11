@@ -55,4 +55,3 @@ export const apiKeys = sqliteTable(
 		index('api_keys_role_idx').on(table.role)
 	]
 );
-
