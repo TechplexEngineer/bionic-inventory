@@ -19,11 +19,12 @@ Copy `.env.example` to `.env` and fill in your Cloudflare values when running Dr
 cp .env.example .env
 ```
 
+- `ADMIN_PASSWORD` - password used to log into `/login` for provisioning API keys
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_DATABASE_ID`
 - `CLOUDFLARE_D1_TOKEN`
-- `PRODUCER_API_TOKENS` - comma-separated write tokens
-- `CONSUMER_API_TOKENS` - comma-separated read tokens
+- `PRODUCER_API_TOKENS` - optional comma-separated static write tokens
+- `CONSUMER_API_TOKENS` - optional comma-separated static read tokens
 
 Update `wrangler.jsonc` with the real D1 database IDs before deploying.
 

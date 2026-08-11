@@ -6,7 +6,8 @@ import {
 	normalizePartInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
-	requireApiRole
+	requireApiRole,
+	verifyAdminPassword
 } from './inventory';
 
 describe('inventory helpers', () => {
@@ -24,7 +25,7 @@ describe('inventory helpers', () => {
 		expect(getArrayQueryParam(url4, 'mfgPartNumber')).toBeUndefined();
 	});
 
-	it('parses configured API tokens and authorizes producer access', () => {
+	it('parses configured API tokens and authorizes producer access', async () => {
 		const request = new Request('https://example.com/api/inventory', {
 			headers: {
 				authorization: ['Bearer', 'producer-token'].join(' ')
@@ -35,7 +36,7 @@ describe('inventory helpers', () => {
 			new Set(['producer-token', 'another-token'])
 		);
 		expect(
-			requireApiRole(
+			await requireApiRole(
 				request,
 				{
 					PRODUCER_API_TOKENS: 'producer-token',
@@ -46,7 +47,7 @@ describe('inventory helpers', () => {
 		).toBe('producer');
 	});
 
-	it('supports x-api-token headers for consumer requests', () => {
+	it('supports x-api-token headers for consumer requests', async () => {
 		const request = new Request('https://example.com/api/history', {
 			headers: {
 				'x-api-token': 'consumer-token'
@@ -55,7 +56,7 @@ describe('inventory helpers', () => {
 
 		expect(extractApiToken(request)).toBe('consumer-token');
 		expect(
-			requireApiRole(
+			await requireApiRole(
 				request,
 				{
 					PRODUCER_API_TOKENS: 'producer-token',
@@ -64,6 +65,12 @@ describe('inventory helpers', () => {
 				['consumer', 'producer']
 			)
 		).toBe('consumer');
+	});
+
+	it('verifies environment admin password correctly', () => {
+		expect(verifyAdminPassword('secret123', { ADMIN_PASSWORD: 'secret123' })).toBe(true);
+		expect(verifyAdminPassword('wrongpass', { ADMIN_PASSWORD: 'secret123' })).toBe(false);
+		expect(verifyAdminPassword('admin', {})).toBe(true);
 	});
 
 	it('normalizes part payloads with metadata', () => {

@@ -11,7 +11,8 @@ import {
 
 export const GET: RequestHandler = async ({ platform, request, url }) => {
 	try {
-		requireApiRole(request, platform?.env, ['consumer', 'producer']);
+		const d1 = platform?.env?.DB ? getBoundDb(platform) : undefined;
+		await requireApiRole(request, platform?.env, ['consumer', 'producer'], d1);
 
 		const inventory = await listInventory(getBoundDb(platform), {
 			query: getSearchQuery(url),

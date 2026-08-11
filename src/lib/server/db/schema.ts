@@ -39,3 +39,20 @@ export const inventoryChanges = sqliteTable(
 		index('inventory_changes_recorded_at_idx').on(table.recordedAt)
 	]
 );
+
+export const apiKeys = sqliteTable(
+	'api_keys',
+	{
+		id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+		name: text('name').notNull(),
+		key: text('key').notNull(),
+		role: text('role').$type<'producer' | 'consumer'>().notNull(),
+		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+		revokedAt: text('revoked_at')
+	},
+	(table) => [
+		uniqueIndex('api_keys_key_idx').on(table.key),
+		index('api_keys_role_idx').on(table.role)
+	]
+);
+
