@@ -467,7 +467,7 @@ function renderEndpointCard(ep: ApiEndpointDoc): string {
 									<td><code>${p.name}</code></td>
 									<td><span class="badge bg-secondary-subtle text-light">${p.in}</span></td>
 									<td><code>${p.type}</code></td>
-									<td>${p.required ? '<span class="badge bg-danger">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+									<td>${p.required ? '<span class="badge bg-danger">Required</span>' : '<span class="badge bg-secondary opacity-75">Optional</span>'}</td>
 									<td>${p.description} ${p.default ? `<em>(Default: <code>${p.default}</code>)</em>` : ''}</td>
 								</tr>
 							`
@@ -502,7 +502,7 @@ function renderEndpointCard(ep: ApiEndpointDoc): string {
 								<tr>
 									<td><code>${f.name}</code></td>
 									<td><code>${f.type}</code></td>
-									<td>${f.required ? '<span class="badge bg-danger">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
+									<td>${f.required ? '<span class="badge bg-danger">Required</span>' : '<span class="badge bg-secondary opacity-75">Optional</span>'}</td>
 									<td>${f.description.replace(/\n/g, '<br/>')}</td>
 								</tr>
 							`

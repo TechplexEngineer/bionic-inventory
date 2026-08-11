@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { inventoryChanges, parts } from '$lib/server/db/schema';
 
@@ -43,6 +43,12 @@ export interface TransactionInput {
 		quantityDelta: number;
 		usedIn?: string | null;
 	}>;
+}
+
+export interface ListInventoryOptions {
+	query?: string;
+	mfgPartNumber?: string[];
+	id?: string[];
 }
 
 type TokenEnv = object;
@@ -96,6 +102,25 @@ export function getBoundDb(platform: App.Platform | undefined): D1Database {
 export function getSearchQuery(url: URL): string | undefined {
 	const query = url.searchParams.get('q')?.trim();
 	return query ? query : undefined;
+}
+
+export function getArrayQueryParam(url: URL, paramName: string): string[] | undefined {
+	const rawValues = url.searchParams.getAll(paramName);
+	if (rawValues.length === 0) {
+		return undefined;
+	}
+
+	const result: string[] = [];
+	for (const raw of rawValues) {
+		for (const item of raw.split(',')) {
+			const trimmed = item.trim();
+			if (trimmed && !result.includes(trimmed)) {
+				result.push(trimmed);
+			}
+		}
+	}
+
+	return result.length > 0 ? result : undefined;
 }
 
 export function getLimit(url: URL, fallback = 50, max = 200): number {
@@ -253,17 +278,31 @@ export function buildFtsQuery(query: string): string {
 
 export async function listInventory(
 	d1: D1Database,
-	options: {
-		query?: string;
-	}
+	options: ListInventoryOptions = {}
 ): Promise<InventoryPart[]> {
 	if (options.query) {
-		return searchInventory(d1, options.query);
+		let results = await searchInventory(d1, options.query);
+		if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
+			results = results.filter((p) => options.mfgPartNumber!.includes(p.mfgPartNumber));
+		}
+		if (options.id && options.id.length > 0) {
+			results = results.filter((p) => options.id!.includes(p.id));
+		}
+		return results;
 	}
 
 	const db = getDb(d1);
 	const quantityExpression = sql<number>`coalesce(sum(${inventoryChanges.quantityDelta}), 0)`;
-	const rows = await db
+
+	const conditions = [];
+	if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
+		conditions.push(inArray(parts.mfgPartNumber, options.mfgPartNumber));
+	}
+	if (options.id && options.id.length > 0) {
+		conditions.push(inArray(parts.id, options.id));
+	}
+
+	let queryBuilder = db
 		.select({
 			id: parts.id,
 			name: parts.name,
@@ -273,7 +312,14 @@ export async function listInventory(
 			quantity: quantityExpression
 		})
 		.from(parts)
-		.leftJoin(inventoryChanges, eq(parts.id, inventoryChanges.partId))
+		.leftJoin(inventoryChanges, eq(parts.id, inventoryChanges.partId));
+
+	if (conditions.length > 0) {
+		const whereCondition = conditions.length === 1 ? conditions[0] : and(...conditions);
+		queryBuilder = queryBuilder.where(whereCondition) as typeof queryBuilder;
+	}
+
+	const rows = await queryBuilder
 		.groupBy(parts.id, parts.name, parts.mfgPartNumber, parts.description, parts.metadata)
 		.orderBy(asc(parts.name));
 
