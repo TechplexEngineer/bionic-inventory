@@ -1,9 +1,18 @@
 import { json } from '@sveltejs/kit';
-import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { inventoryChanges, parts } from '$lib/server/db/schema';
+import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
 
 export type ApiRole = 'producer' | 'consumer';
+
+export interface ApiKeyItem {
+	id: string;
+	name: string;
+	key: string;
+	role: ApiRole;
+	createdAt: string;
+	revokedAt: string | null;
+}
 
 export interface InventoryPart {
 	id: string;
@@ -93,6 +102,80 @@ export function getBoundDb(platform: App.Platform | undefined): D1Database {
 	return platform.env.DB;
 }
 
+export function verifyAdminPassword(password: string, env?: TokenEnv): boolean {
+	const expectedPassword =
+		readOptionalEnvString(env, 'ADMIN_PASSWORD') ||
+		readOptionalEnvString(env, 'PASSWORD') ||
+		(typeof process !== 'undefined' ? process.env?.ADMIN_PASSWORD || process.env?.PASSWORD : undefined) ||
+		'admin';
+
+	return password === expectedPassword;
+}
+
+export async function listApiKeys(d1: D1Database): Promise<ApiKeyItem[]> {
+	const db = getDb(d1);
+	const rows = await db
+		.select({
+			id: apiKeys.id,
+			name: apiKeys.name,
+			key: apiKeys.key,
+			role: apiKeys.role,
+			createdAt: apiKeys.createdAt,
+			revokedAt: apiKeys.revokedAt
+		})
+		.from(apiKeys)
+		.orderBy(desc(apiKeys.createdAt));
+
+	return rows.map((row) => ({
+		...row,
+		role: row.role as ApiRole,
+		revokedAt: row.revokedAt ?? null
+	}));
+}
+
+export async function createApiKey(
+	d1: D1Database,
+	name: string,
+	role: ApiRole
+): Promise<ApiKeyItem> {
+	if (!name || name.trim().length === 0) {
+		throw new InventoryRouteError('Key name is required.', 400);
+	}
+	if (role !== 'producer' && role !== 'consumer') {
+		throw new InventoryRouteError('Role must be producer or consumer.', 400);
+	}
+
+	const db = getDb(d1);
+	const id = crypto.randomUUID();
+	const key = `bio_${role === 'producer' ? 'prod' : 'cons'}_${crypto.randomUUID().replace(/-/g, '')}`;
+	const createdAt = new Date().toISOString();
+
+	await db.insert(apiKeys).values({
+		id,
+		name: name.trim(),
+		key,
+		role,
+		createdAt
+	});
+
+	return {
+		id,
+		name: name.trim(),
+		key,
+		role,
+		createdAt,
+		revokedAt: null
+	};
+}
+
+export async function revokeApiKey(d1: D1Database, id: string): Promise<void> {
+	const db = getDb(d1);
+	await db
+		.update(apiKeys)
+		.set({ revokedAt: new Date().toISOString() })
+		.where(eq(apiKeys.id, id));
+}
+
 export function getSearchQuery(url: URL): string | undefined {
 	const query = url.searchParams.get('q')?.trim();
 	return query ? query : undefined;
@@ -136,11 +219,12 @@ export function parseConfiguredTokens(rawValue: string | undefined): Set<string>
 	);
 }
 
-export function requireApiRole(
+export async function requireApiRole(
 	request: Request,
 	env: TokenEnv | undefined,
-	allowedRoles: ApiRole[]
-): ApiRole {
+	allowedRoles: ApiRole[],
+	d1?: D1Database
+): Promise<ApiRole> {
 	const token = extractApiToken(request);
 
 	if (!token) {
@@ -150,11 +234,30 @@ export function requireApiRole(
 	const producerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'PRODUCER_API_TOKENS'));
 	const consumerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'CONSUMER_API_TOKENS'));
 
-	const role: ApiRole | null = producerTokens.has(token)
+	let role: ApiRole | null = producerTokens.has(token)
 		? 'producer'
 		: consumerTokens.has(token)
 			? 'consumer'
 			: null;
+
+	if (!role && d1) {
+		try {
+			const db = getDb(d1);
+			const rows = await db
+				.select({ role: apiKeys.role, revokedAt: apiKeys.revokedAt })
+				.from(apiKeys)
+				.where(eq(apiKeys.key, token))
+				.limit(1);
+
+			if (rows.length > 0 && !rows[0].revokedAt) {
+				role = rows[0].role as ApiRole;
+			}
+		} catch (cause) {
+			if (!isMissingSchemaError(cause)) {
+				throw cause;
+			}
+		}
+	}
 
 	if (!role) {
 		throw new InventoryRouteError('Invalid API token.', 401);
@@ -166,6 +269,7 @@ export function requireApiRole(
 
 	return role;
 }
+
 
 export function normalizePartInput(payload: unknown): Required<PartInput> {
 	if (!isPlainObject(payload)) {

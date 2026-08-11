@@ -10,7 +10,8 @@ import {
 
 export const GET: RequestHandler = async ({ platform, request, url }) => {
 	try {
-		requireApiRole(request, platform?.env, ['consumer', 'producer']);
+		const d1 = platform?.env?.DB ? getBoundDb(platform) : undefined;
+		await requireApiRole(request, platform?.env, ['consumer', 'producer'], d1);
 
 		const history = await listHistory(getBoundDb(platform), {
 			partId: url.searchParams.get('partId')?.trim() || undefined,
