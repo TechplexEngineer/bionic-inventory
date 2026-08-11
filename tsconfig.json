@@ -16,6 +16,6 @@
 		]
 	},
 	"exclude": [
-		".svelte-kit/cloudflare"
+		".svelte-kit"
 	]
 }

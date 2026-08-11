@@ -32,10 +32,10 @@ Update `wrangler.jsonc` with the real D1 database IDs before deploying.
 ```bash
 npm install
 npm run gen
-npm run db:generate
+npm run db:migrate:local # applies schema to local Miniflare D1
 npm run check
-npm test
-npm run dev
+npm test                 # runs Vitest unit and Miniflare D1 integration tests
+npm run dev              # runs SvelteKit with Wrangler platform proxy (Miniflare)
 ```
 
 ## Database schema

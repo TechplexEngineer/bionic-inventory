@@ -486,7 +486,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isSqliteUniqueError(cause: unknown): boolean {
-	return cause instanceof Error && cause.message.includes('UNIQUE constraint failed');
+	if (!(cause instanceof Error)) {
+		return false;
+	}
+	const fullMessage =
+		cause.message +
+		(cause.cause && typeof cause.cause === 'object' && 'message' in cause.cause
+			? ' ' + String(cause.cause.message)
+			: '');
+	return /UNIQUE constraint failed|UNIQUE constraint/i.test(fullMessage);
 }
 
 function readOptionalEnvString(env: TokenEnv | undefined, key: string): string | undefined {
