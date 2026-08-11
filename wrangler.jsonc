@@ -14,8 +14,8 @@
 		{
 			"binding": "DB",
 			"database_name": "bionic-inventory",
-			"database_id": "00000000-0000-0000-0000-000000000000",
-			"preview_database_id": "00000000-0000-0000-0000-000000000000"
+			"database_id": "305c793c-b1d9-4fd1-abe8-3e417162340b",
+			"preview_database_id": "305c793c-b1d9-4fd1-abe8-3e417162340b"
 		}
 	],
 	"workers_dev": true,
