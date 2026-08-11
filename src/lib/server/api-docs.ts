@@ -120,6 +120,22 @@ export function getApiDocumentation(): ApiDocumentation {
 						required: false,
 						description:
 							'Search query string. Matches part name, manufacturer part number, or description using full-text search.'
+					},
+					{
+						name: 'mfgPartNumber',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description:
+							'Filter by manufacturer part number(s). Supports repeating query parameters (e.g. ?mfgPartNumber=PN1&mfgPartNumber=PN2) or comma-separated lists.'
+					},
+					{
+						name: 'id',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description:
+							'Filter by part ID UUID(s). Supports repeating query parameters (e.g. ?id=uuid1&id=uuid2) or comma-separated lists.'
 					}
 				],
 				responses: [
@@ -539,6 +555,7 @@ export function getOpenApiSpec(): Record<string, unknown> {
 				required: true,
 				content: {
 					'application/json': {
+						schema: buildRequestBodySchema(ep),
 						example: ep.requestBody.example
 					}
 				}
@@ -577,5 +594,97 @@ export function getOpenApiSpec(): Record<string, unknown> {
 				}
 			}
 		}
+	};
+}
+
+function buildRequestBodySchema(ep: ApiEndpointDoc): Record<string, unknown> {
+	if (!ep.requestBody) return {};
+
+	if (ep.id === 'post-parts') {
+		return {
+			type: 'object',
+			required: ['name', 'mfgPartNumber'],
+			properties: {
+				name: {
+					type: 'string',
+					description: 'Non-empty string part name (e.g. "20T GT2 Pulley").'
+				},
+				mfgPartNumber: {
+					type: 'string',
+					description: 'Unique manufacturer part number string (e.g. "PULLEY-GT2-20T").'
+				},
+				description: {
+					type: 'string',
+					description: 'Optional part description (defaults to empty string).'
+				},
+				metadata: {
+					type: 'object',
+					description: 'Optional free-form JSON object for custom attributes and properties.'
+				}
+			}
+		};
+	}
+
+	if (ep.id === 'post-transactions') {
+		return {
+			type: 'object',
+			required: ['actor', 'lines'],
+			properties: {
+				actor: {
+					type: 'string',
+					description: 'Non-empty identifier of the user or system executing the transaction.'
+				},
+				recordedAt: {
+					type: 'string',
+					format: 'date-time',
+					description: 'ISO-8601 timestamp string (defaults to current server timestamp).'
+				},
+				note: {
+					type: 'string',
+					nullable: true,
+					description: 'Optional reference note or comment.'
+				},
+				lines: {
+					type: 'array',
+					minItems: 1,
+					description: 'Non-empty array of transaction line objects.',
+					items: {
+						type: 'object',
+						required: ['partId', 'quantityDelta'],
+						properties: {
+							partId: {
+								type: 'string',
+								format: 'uuid',
+								description: 'Target part UUID string.'
+							},
+							quantityDelta: {
+								type: 'integer',
+								description: 'Non-zero integer change (+ to add stock, - to consume stock).'
+							},
+							usedIn: {
+								type: 'string',
+								nullable: true,
+								description: 'Optional assembly or order reference.'
+							}
+						}
+					}
+				}
+			}
+		};
+	}
+
+	const required = ep.requestBody.fields.filter((f) => f.required).map((f) => f.name);
+	const properties: Record<string, unknown> = {};
+	for (const f of ep.requestBody.fields) {
+		properties[f.name] = {
+			type: f.type,
+			description: f.description
+		};
+	}
+
+	return {
+		type: 'object',
+		...(required.length > 0 ? { required } : {}),
+		properties
 	};
 }

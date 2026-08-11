@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildFtsQuery,
 	extractApiToken,
+	getArrayQueryParam,
 	normalizePartInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
@@ -9,6 +10,20 @@ import {
 } from './inventory';
 
 describe('inventory helpers', () => {
+	it('parses array query parameters supporting repeating params and comma separation', () => {
+		const url1 = new URL('https://example.com/api/inventory?mfgPartNumber=PULLEY-1&mfgPartNumber=GEAR-2');
+		expect(getArrayQueryParam(url1, 'mfgPartNumber')).toEqual(['PULLEY-1', 'GEAR-2']);
+
+		const url2 = new URL('https://example.com/api/inventory?mfgPartNumber=PULLEY-1,GEAR-2');
+		expect(getArrayQueryParam(url2, 'mfgPartNumber')).toEqual(['PULLEY-1', 'GEAR-2']);
+
+		const url3 = new URL('https://example.com/api/inventory?mfgPartNumber=PULLEY-1,GEAR-2&mfgPartNumber=BEARING-3');
+		expect(getArrayQueryParam(url3, 'mfgPartNumber')).toEqual(['PULLEY-1', 'GEAR-2', 'BEARING-3']);
+
+		const url4 = new URL('https://example.com/api/inventory');
+		expect(getArrayQueryParam(url4, 'mfgPartNumber')).toBeUndefined();
+	});
+
 	it('parses configured API tokens and authorizes producer access', () => {
 		const request = new Request('https://example.com/api/inventory', {
 			headers: {
