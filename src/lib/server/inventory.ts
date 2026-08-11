@@ -8,7 +8,7 @@ export type ApiRole = 'producer' | 'consumer';
 export interface ApiKeyItem {
 	id: string;
 	name: string;
-	key: string;
+	keyPrefix: string;
 	role: ApiRole;
 	createdAt: string;
 	revokedAt: string | null;
@@ -118,13 +118,29 @@ export function verifyAdminPassword(password: string, env?: TokenEnv): boolean {
 	return password === expectedPassword;
 }
 
+export async function hashApiToken(token: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function createApiToken(role: ApiRole): string {
+	const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+	let binary = '';
+	for (const byte of randomBytes) {
+		binary += String.fromCharCode(byte);
+	}
+
+	const randomValue = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+	return `bio_${role === 'producer' ? 'prod' : 'cons'}_${randomValue}`;
+}
+
 export async function listApiKeys(d1: D1Database): Promise<ApiKeyItem[]> {
 	const db = getDb(d1);
 	const rows = await db
 		.select({
 			id: apiKeys.id,
 			name: apiKeys.name,
-			key: apiKeys.key,
+			keyPrefix: apiKeys.keyPrefix,
 			role: apiKeys.role,
 			createdAt: apiKeys.createdAt,
 			revokedAt: apiKeys.revokedAt
@@ -143,7 +159,7 @@ export async function createApiKey(
 	d1: D1Database,
 	name: string,
 	role: ApiRole
-): Promise<ApiKeyItem> {
+): Promise<{ item: ApiKeyItem; token: string }> {
 	if (!name || name.trim().length === 0) {
 		throw new InventoryRouteError('Key name is required.', 400);
 	}
@@ -153,24 +169,30 @@ export async function createApiKey(
 
 	const db = getDb(d1);
 	const id = crypto.randomUUID();
-	const key = `bio_${role === 'producer' ? 'prod' : 'cons'}_${crypto.randomUUID().replace(/-/g, '')}`;
+	const token = createApiToken(role);
+	const keyHash = await hashApiToken(token);
+	const keyPrefix = token.slice(0, 18);
 	const createdAt = new Date().toISOString();
 
 	await db.insert(apiKeys).values({
 		id,
 		name: name.trim(),
-		key,
+		keyHash,
+		keyPrefix,
 		role,
 		createdAt
 	});
 
 	return {
-		id,
-		name: name.trim(),
-		key,
-		role,
-		createdAt,
-		revokedAt: null
+		item: {
+			id,
+			name: name.trim(),
+			keyPrefix,
+			role,
+			createdAt,
+			revokedAt: null
+		},
+		token
 	};
 }
 
@@ -268,10 +290,11 @@ export async function requireApiRole(
 	if (!role && d1) {
 		try {
 			const db = getDb(d1);
+			const keyHash = await hashApiToken(token);
 			const rows = await db
 				.select({ role: apiKeys.role, revokedAt: apiKeys.revokedAt })
 				.from(apiKeys)
-				.where(eq(apiKeys.key, token))
+				.where(eq(apiKeys.keyHash, keyHash))
 				.limit(1);
 
 			if (rows.length > 0 && !rows[0].revokedAt) {

@@ -45,13 +45,14 @@ export const apiKeys = sqliteTable(
 	{
 		id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
 		name: text('name').notNull(),
-		key: text('key').notNull(),
+		keyHash: text('key_hash').notNull(),
+		keyPrefix: text('key_prefix').notNull(),
 		role: text('role').$type<'producer' | 'consumer'>().notNull(),
 		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 		revokedAt: text('revoked_at')
 	},
 	(table) => [
-		uniqueIndex('api_keys_key_idx').on(table.key),
+		uniqueIndex('api_keys_key_hash_idx').on(table.keyHash),
 		index('api_keys_role_idx').on(table.role)
 	]
 );
