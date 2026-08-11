@@ -36,25 +36,30 @@
 			</p>
 		</div>
 
-		<form class="row g-2 align-items-center" method="GET">
-			<div class="col-auto">
-				<input
-					class="form-control"
-					type="search"
-					name="q"
-					placeholder="Search part name, number, or description"
-					value={data.query}
-				/>
-			</div>
-			<div class="col-auto">
-				<button class="btn btn-primary" type="submit">Search</button>
-			</div>
-			{#if data.query}
+		<div class="d-flex flex-wrap align-items-center gap-2">
+			<a class="btn btn-outline-primary" href="/api">
+				<i class="bi bi-book me-1"></i> API Docs
+			</a>
+			<form class="row g-2 align-items-center m-0" method="GET">
 				<div class="col-auto">
-					<a class="btn btn-outline-secondary" href="/">Clear</a>
+					<input
+						class="form-control"
+						type="search"
+						name="q"
+						placeholder="Search part name, number, or description"
+						value={data.query}
+					/>
 				</div>
-			{/if}
-		</form>
+				<div class="col-auto">
+					<button class="btn btn-primary" type="submit">Search</button>
+				</div>
+				{#if data.query}
+					<div class="col-auto">
+						<a class="btn btn-outline-secondary" href="/">Clear</a>
+					</div>
+				{/if}
+			</form>
+		</div>
 	</div>
 
 	{#if !data.databaseConfigured || !data.databaseReady}
