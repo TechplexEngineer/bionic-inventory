@@ -7,8 +7,7 @@ import {
 	normalizePartInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
-	requireApiRole,
-	verifyAdminPassword
+	requireApiRole
 } from './inventory';
 
 type StoredApiKey = {
@@ -220,12 +219,6 @@ describe('inventory helpers', () => {
 				['consumer', 'producer']
 			)
 		).toBe('consumer');
-	});
-
-	it('verifies environment admin password correctly', () => {
-		expect(verifyAdminPassword('secret123', { ADMIN_PASSWORD: 'secret123' })).toBe(true);
-		expect(verifyAdminPassword('wrongpass', { ADMIN_PASSWORD: 'secret123' })).toBe(false);
-		expect(verifyAdminPassword('admin', {})).toBe(true);
 	});
 
 	it('normalizes part payloads with metadata', () => {

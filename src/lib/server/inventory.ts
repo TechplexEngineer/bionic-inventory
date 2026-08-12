@@ -108,16 +108,6 @@ export function getBoundDb(platform: App.Platform | undefined): D1Database {
 	return platform.env.DB;
 }
 
-export function verifyAdminPassword(password: string, env?: TokenEnv): boolean {
-	const expectedPassword =
-		readOptionalEnvString(env, 'ADMIN_PASSWORD') ||
-		readOptionalEnvString(env, 'PASSWORD') ||
-		(typeof process !== 'undefined' ? process.env?.ADMIN_PASSWORD || process.env?.PASSWORD : undefined) ||
-		'admin';
-
-	return password === expectedPassword;
-}
-
 export async function hashApiToken(token: string): Promise<string> {
 	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
 	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
