@@ -4,7 +4,7 @@ import { renderApiDocHtml } from './api-docs-html';
 import { GET } from '../../routes/api/+server';
 
 describe('API Documentation Endpoint with Scalar', () => {
-	it('returns structured API documentation object with all 5 routes', () => {
+	it('returns structured API documentation object with all 6 routes', () => {
 		const docs = getApiDocumentation();
 
 		expect(docs.title).toBe('Bionic Inventory API');
@@ -32,6 +32,7 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(endpointPaths).toContain('GET /api/search');
 		expect(endpointPaths).toContain('GET /api/history');
 		expect(endpointPaths).toContain('POST /api/parts');
+		expect(endpointPaths).toContain('PUT /api/parts');
 		expect(endpointPaths).toContain('POST /api/transactions');
 
 		const inventoryEp = docs.endpoints.find((e) => e.path === '/api/inventory');
@@ -39,6 +40,7 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(paramNames).toContain('q');
 		expect(paramNames).toContain('mfgPartNumber');
 		expect(paramNames).toContain('id');
+		expect(paramNames).toContain('showArchived');
 	});
 
 	it('generates valid OpenAPI 3.1 spec object with request body schemas', () => {
@@ -52,6 +54,7 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(spec.paths['/search'].get).toBeDefined();
 		expect(spec.paths['/history'].get).toBeDefined();
 		expect(spec.paths['/parts'].post).toBeDefined();
+		expect(spec.paths['/parts'].put).toBeDefined();
 		expect(spec.paths['/transactions'].post).toBeDefined();
 		expect(spec.components.securitySchemes['x-api-token']).toBeDefined();
 
@@ -62,6 +65,11 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(partsPostSchema.properties.name).toBeDefined();
 		expect(partsPostSchema.properties.mfgPartNumber).toBeDefined();
 		expect(partsPostSchema.properties.description).toBeDefined();
+
+		const partsPutSchema = spec.paths['/parts'].put.requestBody.content['application/json'].schema;
+		expect(partsPutSchema.type).toBe('object');
+		expect(partsPutSchema.required).toEqual(['id', 'archived']);
+		expect(partsPutSchema.properties.archived.type).toBe('boolean');
 
 		// Request body schema assertions for /transactions POST
 		const txPostSchema = spec.paths['/transactions'].post.requestBody.content['application/json'].schema;
@@ -172,4 +180,3 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(html).toContain('customCss');
 	});
 });
-

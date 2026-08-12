@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
 
@@ -21,6 +21,7 @@ export interface InventoryPart {
 	description: string;
 	metadata: Record<string, unknown>;
 	quantity: number;
+	archivedAt: string | null;
 }
 
 export interface InventoryHistoryEntry {
@@ -58,6 +59,7 @@ export interface ListInventoryOptions {
 	query?: string;
 	mfgPartNumber?: string[];
 	id?: string[];
+	showArchived?: boolean;
 }
 
 type TokenEnv = object;
@@ -68,6 +70,7 @@ type PartSearchRow = {
 	mfg_part_number: string;
 	description: string;
 	metadata: string | Record<string, unknown> | null;
+	archived_at: string | null;
 	quantity: number | string | null;
 };
 
@@ -216,6 +219,26 @@ export function getArrayQueryParam(url: URL, paramName: string): string[] | unde
 	}
 
 	return result.length > 0 ? result : undefined;
+}
+
+export function getBooleanQueryParam(url: URL, paramName: string): boolean {
+	const rawValue = url.searchParams.get(paramName)?.trim().toLowerCase();
+	if (!rawValue) {
+		return false;
+	}
+
+	if (['1', 'true', 'yes', 'on'].includes(rawValue)) {
+		return true;
+	}
+
+	if (['0', 'false', 'no', 'off'].includes(rawValue)) {
+		return false;
+	}
+
+	throw new InventoryRouteError(
+		`The "${paramName}" query parameter must be a boolean value.`,
+		400
+	);
 }
 
 export function getLimit(url: URL, fallback = 50, max = 200): number {
@@ -378,6 +401,23 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 	};
 }
 
+export function normalizePartArchiveInput(payload: unknown): { id: string; archived: boolean } {
+	if (!isPlainObject(payload)) {
+		throw new InventoryRouteError('Archive payload must be a JSON object.', 400);
+	}
+
+	const id = normalizeString(payload.id, 'id');
+
+	if (typeof payload.archived !== 'boolean') {
+		throw new InventoryRouteError('archived must be a boolean.', 400);
+	}
+
+	return {
+		id,
+		archived: payload.archived
+	};
+}
+
 export function buildFtsQuery(query: string): string {
 	const tokens = query
 		.trim()
@@ -397,7 +437,7 @@ export async function listInventory(
 	options: ListInventoryOptions = {}
 ): Promise<InventoryPart[]> {
 	if (options.query) {
-		let results = await searchInventory(d1, options.query);
+		let results = await searchInventory(d1, options.query, options.showArchived);
 		if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
 			results = results.filter((p) => options.mfgPartNumber!.includes(p.mfgPartNumber));
 		}
@@ -417,6 +457,9 @@ export async function listInventory(
 	if (options.id && options.id.length > 0) {
 		conditions.push(inArray(parts.id, options.id));
 	}
+	if (!options.showArchived) {
+		conditions.push(isNull(parts.archivedAt));
+	}
 
 	let queryBuilder = db
 		.select({
@@ -425,6 +468,7 @@ export async function listInventory(
 			mfgPartNumber: parts.mfgPartNumber,
 			description: parts.description,
 			metadata: parts.metadata,
+			archivedAt: parts.archivedAt,
 			quantity: quantityExpression
 		})
 		.from(parts)
@@ -436,17 +480,29 @@ export async function listInventory(
 	}
 
 	const rows = await queryBuilder
-		.groupBy(parts.id, parts.name, parts.mfgPartNumber, parts.description, parts.metadata)
+		.groupBy(
+			parts.id,
+			parts.name,
+			parts.mfgPartNumber,
+			parts.description,
+			parts.metadata,
+			parts.archivedAt
+		)
 		.orderBy(asc(parts.name));
 
 	return rows.map((row) => ({
 		...row,
+		archivedAt: row.archivedAt ?? null,
 		metadata: row.metadata ?? {},
 		quantity: Number(row.quantity)
 	}));
 }
 
-export async function searchInventory(d1: D1Database, query: string): Promise<InventoryPart[]> {
+export async function searchInventory(
+	d1: D1Database,
+	query: string,
+	showArchived = false
+): Promise<InventoryPart[]> {
 	const statement = d1
 		.prepare(
 			`
@@ -456,12 +512,14 @@ export async function searchInventory(d1: D1Database, query: string): Promise<In
 					p.mfg_part_number,
 					p.description,
 					p.metadata,
+					p.archived_at,
 					COALESCE(SUM(ic.quantity_delta), 0) AS quantity
 				FROM parts_fts
 				JOIN parts p ON p.rowid = parts_fts.rowid
 				LEFT JOIN inventory_changes ic ON ic.part_id = p.id
 				WHERE parts_fts MATCH ?
-				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata
+				${showArchived ? '' : 'AND p.archived_at IS NULL'}
+				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata, p.archived_at
 				ORDER BY p.name ASC
 			`
 		)
@@ -475,6 +533,7 @@ export async function searchInventory(d1: D1Database, query: string): Promise<In
 		mfgPartNumber: row.mfg_part_number,
 		description: row.description,
 		metadata: parseMetadata(row.metadata),
+		archivedAt: row.archived_at ?? null,
 		quantity: Number(row.quantity ?? 0)
 	}));
 }
@@ -545,8 +604,43 @@ export async function createPart(d1: D1Database, payload: unknown): Promise<Inve
 		mfgPartNumber: input.mfgPartNumber,
 		description: input.description,
 		metadata: input.metadata,
+		archivedAt: null,
 		quantity: 0
 	};
+}
+
+export async function setPartArchivedState(
+	d1: D1Database,
+	payload: unknown
+): Promise<InventoryPart> {
+	const input = normalizePartArchiveInput(payload);
+	return setPartArchivedStateById(d1, input.id, input.archived);
+}
+
+export async function setPartArchivedStateById(
+	d1: D1Database,
+	id: string,
+	archived: boolean
+): Promise<InventoryPart> {
+	const partId = normalizeString(id, 'id');
+	const db = getDb(d1);
+	const existing = await db.select({ id: parts.id }).from(parts).where(eq(parts.id, partId)).limit(1);
+
+	if (existing.length === 0) {
+		throw new InventoryRouteError('Part not found.', 404);
+	}
+
+	const updatedAt = new Date().toISOString();
+	await db
+		.update(parts)
+		.set({
+			archivedAt: archived ? updatedAt : null,
+			updatedAt
+		})
+		.where(eq(parts.id, partId));
+
+	const [part] = await listInventory(d1, { id: [partId], showArchived: true });
+	return part;
 }
 
 export async function createTransaction(

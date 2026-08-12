@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
+	getBooleanQueryParam,
 	getBoundDb,
 	getSearchQuery,
 	handleInventoryError,
@@ -18,7 +19,11 @@ export const GET: RequestHandler = async ({ platform, request, url }) => {
 			return json({ results: [] });
 		}
 
-		const results = await searchInventory(getBoundDb(platform), query);
+		const results = await searchInventory(
+			getBoundDb(platform),
+			query,
+			getBooleanQueryParam(url, 'showArchived')
+		);
 		return json({ results });
 	} catch (cause) {
 		return handleInventoryError(cause);
