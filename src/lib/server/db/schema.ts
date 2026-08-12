@@ -9,12 +9,14 @@ export const parts = sqliteTable(
 		mfgPartNumber: text('mfg_part_number').notNull(),
 		description: text('description').notNull().default(''),
 		metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+		archivedAt: text('archived_at'),
 		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`)
 	},
 	(table) => [
 		uniqueIndex('parts_mfg_part_number_idx').on(table.mfgPartNumber),
-		index('parts_name_idx').on(table.name)
+		index('parts_name_idx').on(table.name),
+		index('parts_archived_at_idx').on(table.archivedAt)
 	]
 );
 

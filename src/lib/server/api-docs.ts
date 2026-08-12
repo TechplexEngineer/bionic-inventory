@@ -91,6 +91,7 @@ export function getApiDocumentation(): ApiDocumentation {
 						'GET /api/search - Full-text search parts catalog',
 						'GET /api/history - View transaction audit history',
 						'POST /api/parts - Create new inventory parts',
+						'PUT /api/parts - Archive or unarchive existing parts',
 						'POST /api/transactions - Record stock changes (additions/consumption)'
 					]
 				},
@@ -113,7 +114,7 @@ export function getApiDocumentation(): ApiDocumentation {
 				path: '/api/inventory',
 				title: 'List Inventory Parts',
 				description:
-					'Retrieves all tracked inventory parts along with their computed current stock quantity (sum of all transaction deltas). Supports optional search filtering.',
+					'Retrieves tracked inventory parts along with their computed current stock quantity (sum of all transaction deltas). Archived parts are hidden by default and can be included with the showArchived filter.',
 				allowedRoles: ['producer', 'consumer'],
 				parameters: [
 					{
@@ -139,6 +140,14 @@ export function getApiDocumentation(): ApiDocumentation {
 						required: false,
 						description:
 							'Filter by part ID UUID(s). Supports repeating query parameters (e.g. ?id=uuid1&id=uuid2) or comma-separated lists.'
+					},
+					{
+						name: 'showArchived',
+						in: 'query',
+						type: 'boolean',
+						required: false,
+						description:
+							'Include archived parts in the response. Supports true/false, 1/0, yes/no, or on/off.'
 					}
 				],
 				responses: [
@@ -153,6 +162,7 @@ export function getApiDocumentation(): ApiDocumentation {
 									mfgPartNumber: 'PULLEY-GT2-20T',
 									description: 'Aluminum timing pulley with 5mm bore',
 									metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+									archivedAt: null,
 									quantity: 42
 								}
 							]
@@ -176,7 +186,7 @@ const data = await response.json();`
 				path: '/api/search',
 				title: 'Search Inventory Catalog',
 				description:
-					'Performs full-text search (SQLite FTS5) across part names, manufacturer part numbers, and descriptions. Query tokens are prefix-matched.',
+					'Performs full-text search (SQLite FTS5) across part names, manufacturer part numbers, and descriptions. Query tokens are prefix-matched. Archived parts are hidden unless showArchived is enabled.',
 				allowedRoles: ['producer', 'consumer'],
 				parameters: [
 					{
@@ -186,6 +196,14 @@ const data = await response.json();`
 						required: false,
 						description:
 							'Search query string (letters and numbers). Returns empty list if query is missing.'
+					},
+					{
+						name: 'showArchived',
+						in: 'query',
+						type: 'boolean',
+						required: false,
+						description:
+							'Include archived parts in search results. Supports true/false, 1/0, yes/no, or on/off.'
 					}
 				],
 				responses: [
@@ -200,6 +218,7 @@ const data = await response.json();`
 									mfgPartNumber: 'PULLEY-GT2-20T',
 									description: 'Aluminum timing pulley with 5mm bore',
 									metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+									archivedAt: null,
 									quantity: 42
 								}
 							]
@@ -344,6 +363,7 @@ const data = await response.json();`
 								mfgPartNumber: 'PULLEY-GT2-20T',
 								description: 'Aluminum timing pulley with 5mm bore',
 								metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+								archivedAt: null,
 								quantity: 0
 							}
 						}
@@ -389,6 +409,93 @@ const data = await response.json();`
     mfgPartNumber: 'PULLEY-GT2-20T',
     description: 'Aluminum timing pulley',
     metadata: { teeth: 20, pitch: 'GT2' }
+  })
+});
+const data = await response.json();`
+			},
+			{
+				id: 'put-parts',
+				method: 'PUT',
+				path: '/api/parts',
+				title: 'Archive or Unarchive Part',
+				description:
+					'Marks an existing part as archived instead of deleting it, or clears the archived flag to unarchive it.',
+				allowedRoles: ['producer'],
+				requestBody: {
+					description: 'JSON object identifying the part and desired archived state.',
+					contentType: 'application/json',
+					fields: [
+						{
+							name: 'id',
+							type: 'string',
+							required: true,
+							description: 'Existing part UUID.'
+						},
+						{
+							name: 'archived',
+							type: 'boolean',
+							required: true,
+							description: 'Set to true to archive the part, or false to unarchive it.'
+						}
+					],
+					example: {
+						id: 'c1f7b8e2-4a5d-4e2b-9f1a-8c3d7e5f2b0a',
+						archived: true
+					}
+				},
+				responses: [
+					{
+						status: 200,
+						description: 'Part archive state updated successfully.',
+						example: {
+							part: {
+								id: 'c1f7b8e2-4a5d-4e2b-9f1a-8c3d7e5f2b0a',
+								name: '20T GT2 Pulley',
+								mfgPartNumber: 'PULLEY-GT2-20T',
+								description: 'Aluminum timing pulley with 5mm bore',
+								metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+								archivedAt: '2026-08-12T10:00:00.000Z',
+								quantity: 42
+							}
+						}
+					},
+					{
+						status: 400,
+						description: 'Invalid archive request body.',
+						example: { error: 'archived must be a boolean.' }
+					},
+					{
+						status: 401,
+						description: 'Missing or invalid API token.',
+						example: { error: 'API token required.' }
+					},
+					{
+						status: 403,
+						description: 'Token does not have producer role.',
+						example: { error: 'This API token is not allowed to perform that action.' }
+					},
+					{
+						status: 404,
+						description: 'Part was not found.',
+						example: { error: 'Part not found.' }
+					}
+				],
+				curlExample: `curl -X PUT "https://example.com/api/parts" \\
+  -H "x-api-token: your-producer-token" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "id": "part-uuid-here",
+    "archived": true
+  }'`,
+				javascriptExample: `const response = await fetch('/api/parts', {
+  method: 'PUT',
+  headers: {
+    'x-api-token': 'your-producer-token',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    id: 'part-uuid-here',
+    archived: true
   })
 });
 const data = await response.json();`

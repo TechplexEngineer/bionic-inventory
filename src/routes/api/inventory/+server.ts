@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	getArrayQueryParam,
+	getBooleanQueryParam,
 	getBoundDb,
 	getSearchQuery,
 	handleInventoryError,
@@ -17,7 +18,8 @@ export const GET: RequestHandler = async ({ platform, request, url }) => {
 		const inventory = await listInventory(getBoundDb(platform), {
 			query: getSearchQuery(url),
 			mfgPartNumber: getArrayQueryParam(url, 'mfgPartNumber'),
-			id: getArrayQueryParam(url, 'id')
+			id: getArrayQueryParam(url, 'id'),
+			showArchived: getBooleanQueryParam(url, 'showArchived')
 		});
 
 		return json({ inventory });
