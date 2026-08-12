@@ -130,4 +130,31 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(html).toContain('data-url="/api?format=openapi"');
 		expect(html).toContain('https://cdn.jsdelivr.net/npm/@scalar/api-reference');
 	});
+
+	it('configures Scalar API Reference to hide client button and scalar branding', async () => {
+		const request = new Request('https://example.com/api', {
+			headers: { accept: 'text/html' }
+		});
+		const event = {
+			request,
+			url: new URL('https://example.com/api'),
+			params: {},
+			platform: undefined,
+			route: { id: '/api' },
+			cookies: {} as any,
+			fetch: fetch as any,
+			getClientAddress: () => '127.0.0.1',
+			locals: {},
+			isDataRequest: false,
+			isSubRequest: false,
+			setHeaders: () => {}
+		};
+
+		const response = await GET(event as any);
+		const html = await response.text();
+
+		expect(html).toContain('hideClientButton');
+		expect(html).toContain('customCss');
+	});
 });
+
