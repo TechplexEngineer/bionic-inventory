@@ -11,7 +11,7 @@ Turn the request into one user-approved Product Requirements Brief. Keep product
 
 Determine why, actors, goals, capabilities, user stories, behaviors, business rules, states, edge cases, scope, assumptions, open questions, and MVP boundary. Do not determine architecture, framework, database schema, API design, class or component structure, implementation plan, or source code.
 
-If asked for a technical decision, capture the underlying product need when relevant and defer the decision to `superpowers:brainstorming`.
+If asked for a technical decision, respond with two parts: one brief sentence that `superpowers:brainstorming` will determine the requested technical design after brief approval, then exactly one open-ended question about the product outcome or business action the capability must enable. Do not supply candidate product choices unless the user or repository has already established that finite set.
 
 ## Discovery
 
@@ -24,7 +24,7 @@ Maintain an internal completeness ledger for every required area. Give each area
 - **Unresolved** — it is missing, ambiguous, or explicitly deferred.
 - **Contradictory** — available answers conflict and need clarification.
 
-Ask exactly one concise, purposeful question at a time. Choose the unresolved question with the greatest effect on scope, user value, or downstream requirements. Offer choices only when grounded in known context. Follow ambiguity or contradiction with one further question; never infer the missing decision. Do not routinely restate answers—do so only to resolve ambiguity, expose a contradiction, or confirm a consequential interpretation.
+Ask exactly one concise, purposeful question about one information gap at a time; do not combine separate questions with “and” or “or.” Choose the unresolved question with the greatest effect on scope, user value, or downstream requirements. Offer choices only when grounded in known context; when the context does not establish a finite choice set, ask an open-ended question. Follow ambiguity or contradiction with one further question; never infer the missing decision. Do not routinely restate answers—do so only to resolve ambiguity, expose a contradiction, or confirm a consequential interpretation.
 
 ## Brief contract
 
