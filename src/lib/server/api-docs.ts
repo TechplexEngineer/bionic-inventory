@@ -43,6 +43,7 @@ export interface ApiDocumentation {
 	description: string;
 	baseUrl: string;
 	authentication: {
+		description: string;
 		headers: Array<{
 			name: string;
 			example: string;
@@ -50,7 +51,7 @@ export interface ApiDocumentation {
 		}>;
 		roles: Array<{
 			name: 'producer' | 'consumer';
-			envVar: string;
+			compatibilityEnvVar: string;
 			description: string;
 			permissions: string[];
 		}>;
@@ -63,9 +64,11 @@ export function getApiDocumentation(): ApiDocumentation {
 		title: 'Bionic Inventory API',
 		version: '1.0.0',
 		description:
-			'RESTful microservice API for managing bionic inventory parts, multi-part stock transactions, full-text search, and historical activity tracking.',
+			'RESTful microservice API for managing bionic inventory parts, multi-part stock transactions, full-text search, and historical activity tracking. Provisioned D1-backed API keys from /keys are the primary authentication method; static environment tokens remain available as optional compatibility credentials.',
 		baseUrl: '/api',
 		authentication: {
+			description:
+				'Provision producer and consumer API keys in the administrator UI at /keys. Only key hashes and safe prefixes are stored in D1, and these provisioned keys are the primary authentication method. The PRODUCER_API_TOKENS and CONSUMER_API_TOKENS environment variables provide optional compatibility for legacy static tokens.',
 			headers: [
 				{
 					name: 'x-api-token',
@@ -81,7 +84,7 @@ export function getApiDocumentation(): ApiDocumentation {
 			roles: [
 				{
 					name: 'producer',
-					envVar: 'PRODUCER_API_TOKENS',
+					compatibilityEnvVar: 'PRODUCER_API_TOKENS',
 					description: 'Full read and write access for inventory management systems and automated tools.',
 					permissions: [
 						'GET /api/inventory - View all parts and stock levels',
@@ -93,7 +96,7 @@ export function getApiDocumentation(): ApiDocumentation {
 				},
 				{
 					name: 'consumer',
-					envVar: 'CONSUMER_API_TOKENS',
+					compatibilityEnvVar: 'CONSUMER_API_TOKENS',
 					description: 'Read-only access for reporting, dashboards, and inquiry services.',
 					permissions: [
 						'GET /api/inventory - View all parts and stock levels',

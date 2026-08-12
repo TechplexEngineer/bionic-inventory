@@ -1,6 +1,6 @@
 # bionic-inventory
 
-A SvelteKit inventory microservice for Cloudflare Workers backed by D1 and Drizzle ORM. The API is the only write surface; the Bootstrap 5 web UI is read-only and shows current inventory plus recent inventory history.
+A SvelteKit inventory microservice for Cloudflare Workers backed by D1 and Drizzle ORM. The Bootstrap 5 inventory dashboard is read-only and shows current inventory plus recent history; inventory writes use the API, while the authenticated `/keys` admin UI is a separate mutating surface for provisioning and revoking API keys.
 
 ## Features
 

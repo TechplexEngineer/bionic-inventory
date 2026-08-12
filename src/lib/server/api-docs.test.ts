@@ -9,11 +9,21 @@ describe('API Documentation Endpoint with Scalar', () => {
 
 		expect(docs.title).toBe('Bionic Inventory API');
 		expect(docs.baseUrl).toBe('/api');
+		expect(docs.description).toContain('/keys');
+		expect(docs.description).toContain('D1');
+		expect(docs.authentication.description).toContain('primary authentication method');
+		expect(docs.authentication.description).toContain('optional compatibility');
 		expect(docs.authentication.headers.length).toBeGreaterThanOrEqual(2);
 		expect(docs.authentication.roles).toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ name: 'producer' }),
-				expect.objectContaining({ name: 'consumer' })
+				expect.objectContaining({
+					name: 'producer',
+					compatibilityEnvVar: 'PRODUCER_API_TOKENS'
+				}),
+				expect.objectContaining({
+					name: 'consumer',
+					compatibilityEnvVar: 'CONSUMER_API_TOKENS'
+				})
 			])
 		);
 
@@ -36,6 +46,8 @@ describe('API Documentation Endpoint with Scalar', () => {
 
 		expect(spec.openapi).toBe('3.1.0');
 		expect(spec.info.title).toBe('Bionic Inventory API');
+		expect(spec.info.description).toContain('/keys');
+		expect(spec.info.description).toContain('D1');
 		expect(spec.paths['/inventory'].get).toBeDefined();
 		expect(spec.paths['/search'].get).toBeDefined();
 		expect(spec.paths['/history'].get).toBeDefined();
@@ -67,6 +79,9 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(html).toContain('Bionic Inventory API Documentation');
 		expect(html).toContain('x-api-token');
 		expect(html).toContain('Authorization');
+		expect(html).toContain('primary authentication method');
+		expect(html).toContain('Optional compatibility env');
+		expect(html).toContain('PRODUCER_API_TOKENS');
 		expect(html).toContain('/api/inventory');
 		expect(html).toContain('Required');
 		expect(html).toContain('Optional');
