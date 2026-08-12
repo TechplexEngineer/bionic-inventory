@@ -1,9 +1,18 @@
 import { json } from '@sveltejs/kit';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { inventoryChanges, parts } from '$lib/server/db/schema';
+import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
 
 export type ApiRole = 'producer' | 'consumer';
+
+export interface ApiKeyItem {
+	id: string;
+	name: string;
+	keyPrefix: string;
+	role: ApiRole;
+	createdAt: string;
+	revokedAt: string | null;
+}
 
 export interface InventoryPart {
 	id: string;
@@ -99,6 +108,92 @@ export function getBoundDb(platform: App.Platform | undefined): D1Database {
 	return platform.env.DB;
 }
 
+export async function hashApiToken(token: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function createApiToken(role: ApiRole): string {
+	const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+	let binary = '';
+	for (const byte of randomBytes) {
+		binary += String.fromCharCode(byte);
+	}
+
+	const randomValue = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+	return `bio_${role === 'producer' ? 'prod' : 'cons'}_${randomValue}`;
+}
+
+export async function listApiKeys(d1: D1Database): Promise<ApiKeyItem[]> {
+	const db = getDb(d1);
+	const rows = await db
+		.select({
+			id: apiKeys.id,
+			name: apiKeys.name,
+			keyPrefix: apiKeys.keyPrefix,
+			role: apiKeys.role,
+			createdAt: apiKeys.createdAt,
+			revokedAt: apiKeys.revokedAt
+		})
+		.from(apiKeys)
+		.orderBy(desc(apiKeys.createdAt));
+
+	return rows.map((row) => ({
+		...row,
+		role: row.role as ApiRole,
+		revokedAt: row.revokedAt ?? null
+	}));
+}
+
+export async function createApiKey(
+	d1: D1Database,
+	name: string,
+	role: ApiRole
+): Promise<{ item: ApiKeyItem; token: string }> {
+	if (!name || name.trim().length === 0) {
+		throw new InventoryRouteError('Key name is required.', 400);
+	}
+	if (role !== 'producer' && role !== 'consumer') {
+		throw new InventoryRouteError('Role must be producer or consumer.', 400);
+	}
+
+	const db = getDb(d1);
+	const id = crypto.randomUUID();
+	const token = createApiToken(role);
+	const keyHash = await hashApiToken(token);
+	const keyPrefix = token.slice(0, 18);
+	const createdAt = new Date().toISOString();
+
+	await db.insert(apiKeys).values({
+		id,
+		name: name.trim(),
+		keyHash,
+		keyPrefix,
+		role,
+		createdAt
+	});
+
+	return {
+		item: {
+			id,
+			name: name.trim(),
+			keyPrefix,
+			role,
+			createdAt,
+			revokedAt: null
+		},
+		token
+	};
+}
+
+export async function revokeApiKey(d1: D1Database, id: string): Promise<void> {
+	const db = getDb(d1);
+	await db
+		.update(apiKeys)
+		.set({ revokedAt: new Date().toISOString() })
+		.where(eq(apiKeys.id, id));
+}
+
 export function getSearchQuery(url: URL): string | undefined {
 	const query = url.searchParams.get('q')?.trim();
 	return query ? query : undefined;
@@ -161,11 +256,12 @@ export function parseConfiguredTokens(rawValue: string | undefined): Set<string>
 	);
 }
 
-export function requireApiRole(
+export async function requireApiRole(
 	request: Request,
 	env: TokenEnv | undefined,
-	allowedRoles: ApiRole[]
-): ApiRole {
+	allowedRoles: ApiRole[],
+	d1?: D1Database
+): Promise<ApiRole> {
 	const token = extractApiToken(request);
 
 	if (!token) {
@@ -175,11 +271,31 @@ export function requireApiRole(
 	const producerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'PRODUCER_API_TOKENS'));
 	const consumerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'CONSUMER_API_TOKENS'));
 
-	const role: ApiRole | null = producerTokens.has(token)
+	let role: ApiRole | null = producerTokens.has(token)
 		? 'producer'
 		: consumerTokens.has(token)
 			? 'consumer'
 			: null;
+
+	if (!role && d1) {
+		try {
+			const db = getDb(d1);
+			const keyHash = await hashApiToken(token);
+			const rows = await db
+				.select({ role: apiKeys.role, revokedAt: apiKeys.revokedAt })
+				.from(apiKeys)
+				.where(eq(apiKeys.keyHash, keyHash))
+				.limit(1);
+
+			if (rows.length > 0 && !rows[0].revokedAt) {
+				role = rows[0].role as ApiRole;
+			}
+		} catch (cause) {
+			if (!isMissingSchemaError(cause)) {
+				throw cause;
+			}
+		}
+	}
 
 	if (!role) {
 		throw new InventoryRouteError('Invalid API token.', 401);

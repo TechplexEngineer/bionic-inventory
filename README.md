@@ -1,12 +1,13 @@
 # bionic-inventory
 
-A SvelteKit inventory microservice for Cloudflare Workers backed by D1 and Drizzle ORM. The API is the only write surface; the Bootstrap 5 web UI is read-only and shows current inventory plus recent inventory history.
+A SvelteKit inventory microservice for Cloudflare Workers backed by D1 and Drizzle ORM. The Bootstrap 5 inventory dashboard is read-only and shows current inventory plus recent history; inventory writes use the API, while the authenticated `/keys` admin UI is a separate mutating surface for provisioning and revoking API keys.
 
 ## Features
 
 - Cloudflare Workers runtime with a D1 database binding
 - Drizzle ORM schema for `parts` and `inventory_changes`
-- Producer and consumer API token authorization
+- Secure, role-scoped API-key provisioning with administrator login
+- Producer and consumer API token authorization, including optional legacy static tokens
 - Full-text search with SQLite FTS5 over part name, manufacturer part number, and description
 - View-only Bootstrap 5 frontend for current inventory and transaction history
 - Multi-line inventory transactions with optional `usedIn` context per consumed part
@@ -19,13 +20,26 @@ Copy `.env.example` to `.env` and fill in your Cloudflare values when running Dr
 cp .env.example .env
 ```
 
+- `ADMIN_PASSWORD` - required administrator password for `/login`
+- `SESSION_SECRET` - required high-entropy secret used to sign administrator sessions
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_DATABASE_ID`
 - `CLOUDFLARE_D1_TOKEN`
-- `PRODUCER_API_TOKENS` - comma-separated write tokens
-- `CONSUMER_API_TOKENS` - comma-separated read tokens
+- `PRODUCER_API_TOKENS` - optional comma-separated static write tokens
+- `CONSUMER_API_TOKENS` - optional comma-separated static read tokens
 
 Update `wrangler.jsonc` with the real D1 database IDs before deploying.
+
+### Cloudflare production secrets
+
+Set both administrator secrets with Wrangler before using `/login` or `/keys` in a deployed Worker. Each command prompts for the value, keeping it out of source control and `wrangler.jsonc`.
+
+```bash
+npx wrangler secret put ADMIN_PASSWORD
+npx wrangler secret put SESSION_SECRET
+```
+
+Use a unique, high-entropy value for each secret. There is no development or production fallback password: if either secret is missing, administrator authentication is unavailable. The `CLOUDFLARE_*` values in `.env` are only for local Drizzle tooling; do not commit `.env`.
 
 ## Local commands
 
@@ -38,15 +52,40 @@ npm test
 npm run dev
 ```
 
+### D1 migrations
+
+Apply migrations to the local D1 emulator while developing:
+
+```bash
+npx wrangler d1 migrations apply bionic-inventory --local
+```
+
+Apply the same migrations to the configured remote D1 database only as a deliberate deployment operation, after reviewing the target account and database ID:
+
+```bash
+npx wrangler d1 migrations apply bionic-inventory --remote
+```
+
+`--local` and `--remote` use different databases and migration state. Do not substitute the remote command for local development, and do not run the remote command merely to test a migration.
+
 ## Database schema
 
 - `parts` stores each unique part, description, and free-form JSON metadata.
 - `inventory_changes` stores every increment or decrement with actor, recorded time, optional note, and optional `used_in`.
 - `parts_fts` is an FTS5 virtual table maintained by triggers for API search.
+- `api_keys` stores provisioned keys by SHA-256 hash and a non-secret display prefix, with role, creation timestamp, and optional revocation timestamp. Raw API-key values are never stored in D1.
+
+## Administrator key provisioning
+
+Visit `/login` and authenticate with `ADMIN_PASSWORD`. A successful login creates an HttpOnly, signed `admin_session` cookie and redirects to `/keys`. That page can create producer or consumer keys, list their safe prefixes and status, and revoke keys. Use the Logout control to delete the administrator session and return to `/login`.
+
+The complete raw token is displayed only once, immediately after creation. Copy and store it in an approved secret manager before leaving the confirmation. Later views expose only the prefix, so a lost token must be revoked and replaced.
+
+Provisioned API keys are accepted in either `Authorization: Bearer <token>` or `X-API-Token: <token>`. A producer key can use write and read endpoints; a consumer key can use read endpoints only. Revoked keys are rejected.
 
 ## REST API
 
-Write endpoints require a producer token (`PRODUCER_API_TOKENS`). Read endpoints accept either a producer or consumer token (`CONSUMER_API_TOKENS`).
+Write endpoints require a producer token. Read endpoints accept either a producer or consumer token. Tokens may be provisioned through `/keys`; for compatibility, the optional comma-separated `PRODUCER_API_TOKENS` and `CONSUMER_API_TOKENS` environment values remain valid as static tokens. Prefer provisioned keys for rotation and revocation; static tokens cannot be revoked from the UI.
 
 Pass the token in the `Authorization` header (`Authorization: Bearer <token>`) or with `X-API-Token: <token>`.
 

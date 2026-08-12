@@ -9,7 +9,8 @@ import {
 
 export const POST: RequestHandler = async ({ platform, request }) => {
 	try {
-		requireApiRole(request, platform?.env, ['producer']);
+		const d1 = platform?.env?.DB ? getBoundDb(platform) : undefined;
+		await requireApiRole(request, platform?.env, ['producer'], d1);
 
 		const part = await createPart(getBoundDb(platform), await request.json());
 		return json({ part }, { status: 201 });

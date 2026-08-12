@@ -243,6 +243,7 @@ export function renderApiDocHtml(docs: ApiDocumentation): string {
 					<h2 class="h3 fw-bold mb-3"><i class="bi bi-shield-lock text-warning me-2"></i>Authentication</h2>
 					<div class="card card-endpoint">
 						<div class="card-body p-4">
+							<p>${docs.authentication.description}</p>
 							<p>All API endpoints require authentication using an API token. Pass the token using either of the following HTTP header formats:</p>
 							<div class="table-responsive">
 								<table class="table table-dark-custom align-middle mb-0">
@@ -284,7 +285,7 @@ export function renderApiDocHtml(docs: ApiDocumentation): string {
 										<span class="badge ${role.name === 'producer' ? 'badge-role-producer' : 'badge-role-consumer'} fs-6 text-uppercase">
 											${role.name}
 										</span>
-										<small class="text-secondary">Env: <code>${role.envVar}</code></small>
+										<small class="text-secondary">Optional compatibility env: <code>${role.compatibilityEnvVar}</code></small>
 									</div>
 									<div class="card-body p-4">
 										<p class="text-secondary mb-3">${role.description}</p>

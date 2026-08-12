@@ -14,6 +14,7 @@
 		{
 			"binding": "DB",
 			"database_name": "bionic-inventory",
+			"migrations_dir": "drizzle",
 			"database_id": "305c793c-b1d9-4fd1-abe8-3e417162340b",
 			"preview_database_id": "305c793c-b1d9-4fd1-abe8-3e417162340b"
 		}
