@@ -19,6 +19,15 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		});
 	}
 
+	const scalarConfig = JSON.stringify({
+		hideClientButton: true,
+		hideDownloadButton: true,
+		customCss: `
+			a[href*="scalar.com"] { display: none !important; }
+			.scalar-footer { display: none !important; }
+		`
+	});
+
 	// Render @scalar/api-reference API browser
 	const scalarHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -39,6 +48,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	<script
 		id="api-reference"
 		data-url="/api?format=openapi"
+		data-configuration='${scalarConfig.replace(/'/g, "&apos;")}'
 		src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 </body>
 </html>`;
