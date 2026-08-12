@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { verifyAdminSession } from '$lib/server/admin-auth';
 import {
 	createApiKey,
 	getBoundDb,
@@ -8,9 +9,20 @@ import {
 	type ApiRole
 } from '$lib/server/inventory';
 
+const adminSessionCookie = 'admin_session';
+
+async function hasAdminSession(
+	cookies: { get(name: string): string | undefined },
+	platform: App.Platform | undefined
+): Promise<boolean> {
+	return verifyAdminSession(
+		cookies.get(adminSessionCookie),
+		platform?.env?.SESSION_SECRET ?? ''
+	);
+}
+
 export const load: PageServerLoad = async ({ cookies, platform }) => {
-	const session = cookies.get('admin_session');
-	if (session !== 'authenticated') {
+	if (!(await hasAdminSession(cookies, platform))) {
 		throw redirect(303, '/login');
 	}
 
@@ -30,7 +42,7 @@ export const load: PageServerLoad = async ({ cookies, platform }) => {
 			databaseMessage: '',
 			keys
 		};
-	} catch (cause) {
+	} catch {
 		return {
 			databaseConfigured: true,
 			databaseMessage: 'Could not load API keys. Ensure D1 migration has been executed.',
@@ -41,8 +53,7 @@ export const load: PageServerLoad = async ({ cookies, platform }) => {
 
 export const actions: Actions = {
 	create: async ({ request, cookies, platform }) => {
-		const session = cookies.get('admin_session');
-		if (session !== 'authenticated') {
+		if (!(await hasAdminSession(cookies, platform))) {
 			throw redirect(303, '/login');
 		}
 
@@ -61,14 +72,12 @@ export const actions: Actions = {
 			const d1 = getBoundDb(platform);
 			const newKey = await createApiKey(d1, name, role);
 			return { createdKey: newKey };
-		} catch (cause) {
-			const message = cause instanceof Error ? cause.message : 'Failed to create API key.';
-			return fail(400, { createError: message });
+		} catch {
+			return fail(500, { createError: 'Failed to create API key.' });
 		}
 	},
 	revoke: async ({ request, cookies, platform }) => {
-		const session = cookies.get('admin_session');
-		if (session !== 'authenticated') {
+		if (!(await hasAdminSession(cookies, platform))) {
 			throw redirect(303, '/login');
 		}
 
@@ -83,9 +92,8 @@ export const actions: Actions = {
 			const d1 = getBoundDb(platform);
 			await revokeApiKey(d1, id);
 			return { revokedId: id };
-		} catch (cause) {
-			const message = cause instanceof Error ? cause.message : 'Failed to revoke API key.';
-			return fail(400, { revokeError: message });
+		} catch {
+			return fail(500, { revokeError: 'Failed to revoke API key.' });
 		}
 	}
 };

@@ -2,7 +2,7 @@
 	import 'bootstrap/dist/css/bootstrap.min.css';
 	import favicon from '$lib/assets/favicon.svg';
 
-	let { children } = $props();
+	let { children, data } = $props();
 </script>
 
 <svelte:head>
@@ -20,7 +20,14 @@
 
 		<div class="navbar-nav ms-auto flex-row gap-3 align-items-center">
 			<a class="nav-link px-2" href="/">Inventory</a>
-			<a class="nav-link px-2" href="/keys">API Keys</a>
+			{#if data.isAdmin}
+				<a class="nav-link px-2" href="/keys">API Keys</a>
+				<form method="POST" action="/login?/logout">
+					<button class="btn btn-link nav-link px-2" type="submit">Logout</button>
+				</form>
+			{:else}
+				<a class="nav-link px-2" href="/login">Login</a>
+			{/if}
 		</div>
 	</div>
 </nav>
