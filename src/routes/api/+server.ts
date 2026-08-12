@@ -21,7 +21,6 @@ export const GET: RequestHandler = async ({ request, url }) => {
 
 	const scalarConfig = JSON.stringify({
 		hideClientButton: true,
-		hideDownloadButton: true,
 		customCss: `
 			a[href*="scalar.com"] { display: none !important; }
 			.scalar-footer { display: none !important; }
