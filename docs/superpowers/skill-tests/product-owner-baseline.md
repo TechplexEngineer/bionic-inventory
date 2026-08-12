@@ -2,17 +2,19 @@
 
 **Date:** 2026-08-12
 **Mode:** Fresh, blind agent contexts with no product-owner skill available. Each context received only its user prompt; it did not receive the approved design, intended workflow, suspected failures, or a future `SKILL.md`.
+**Execution trace:** The scenarios were run as four separate fresh agent invocations in the team runner: `BL-01` (vague), `BL-02` (existing enhancement), `BL-03` (technical pressure), and `BL-04` (ambiguity). Run identifiers are anonymized; no prompt, response, or repository state was shared between runs.
+**Scoring reference:** [Product Owner Skill Design](../specs/2026-08-12-product-owner-skill-design.md), consulted only after the blind responses were collected and never shown to the baseline agents.
 
 ## Scoring method
 
-The baseline is scored against the approved Product Owner Skill Design. A first-turn response is expected to ask one concise, highest-impact question when product information remains unresolved. “Missing brief areas” lists required areas omitted by an answer that nevertheless starts defining the product; it is `N/A` when the response limits itself to discovery. “Invented assumptions” counts distinct unconfirmed product choices introduced in the response.
+The baseline is scored against the approved Product Owner Skill Design. A first-turn response is expected to ask one concise, highest-impact question when product information remains unresolved. “Missing brief areas” lists omissions from the 13 product-content areas—Why, Actors, Goals, Capabilities, User stories, Behaviors, Business rules, States, Edge cases, Scope, Assumptions, Open questions, and MVP boundary—when an answer nevertheless starts defining the product; it is `N/A` when the response limits itself to discovery. Title/status and the handoff note are excluded because no baseline response claims to present a brief. “Invented assumptions” counts distinct unconfirmed product choices introduced in the response.
 
 | Scenario | Questions | Unnecessary restatement | Invented assumptions | Missing brief areas | Technical leakage | Premature drafting or handoff |
 | --- | ---: | --- | ---: | --- | --- | --- |
-| 1. Vague new product | 1 | No | 0 | N/A | No | No |
-| 2. Existing-app enhancement | 1 | No | 7 | Why, goals, business rules, edge cases, scope, assumptions, open questions, MVP boundary | No | Yes |
-| 3. Pressure for technical design | 0 | No | 30+ | Why, actors, goals, scope, assumptions, open questions, MVP boundary | Yes | Yes |
-| 4. Ambiguity, contradiction, and deferral | 1 | No (the contradiction summary was useful) | 7 | Why, goals, business rules, edge cases, scope, assumptions, open questions, MVP boundary | No | Yes |
+| 1. Vague new product | 1 | No | 1 | N/A | No | No |
+| 2. Existing-app enhancement | 1 | No | 7 | Why, goals, user stories, business rules, edge cases, scope, assumptions, open questions, MVP boundary | No | Yes |
+| 3. Pressure for technical design | 0 | No | 30+ | Why, goals, user stories, scope, assumptions, open questions, MVP boundary | Yes | Yes |
+| 4. Ambiguity, contradiction, and deferral | 1 | No (the contradiction summary was useful) | 7 | Why, goals, user stories, edge cases, scope, assumptions, open questions, MVP boundary | No | Yes |
 
 ## Scenario 1 — vague new-product idea
 
@@ -26,7 +28,7 @@ The baseline is scored against the approved Product Owner Skill Design. A first-
 
 ### Observation
 
-This response asked exactly one concise question and made no product decision. Its either/or framing is not grounded in the prompt, but it did not block baseline RED evidence because later scenarios do.
+This response asked exactly one concise question, but it introduced one unsupported framing assumption: that the request might extend Bionic Inventory. The choice is not grounded in the prompt and prematurely narrows the user’s answer, so it is recorded as an invented assumption even though the response did not begin drafting a feature.
 
 ## Scenario 2 — existing-application enhancement
 
@@ -202,7 +204,7 @@ This is a direct contract violation: it chooses storage, architecture, API, sche
 
 ### Observation
 
-The response correctly exposes the contradiction, but then drafts a feature before it is resolved and treats the explicitly deferred approval choice as a configurable technical/product solution. It additionally invents delivery eligibility, item granularity, photos, descriptions, state names, a refund process, and a separate support policy. The next question is not singular: it asks both whether late delivery is included and, implicitly, whether it is a separate workflow.
+The response correctly exposes the contradiction, but then drafts a feature before it is resolved and treats the explicitly deferred approval choice as a configurable technical/product solution. It additionally invents delivery eligibility, item granularity, photos, descriptions, state names, a refund process, and a separate support policy. It contains one explicit question, but embeds a recommendation and a false dichotomy: late delivery is proposed as either a separate support/refund issue or an additional return reason before the user’s desired policy is established.
 
 ## RED result
 
