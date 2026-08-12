@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { data } = $props();
+	let { data, form } = $props();
 
 	function totalQuantity() {
 		return data.parts.reduce((sum, part) => sum + part.quantity, 0);
