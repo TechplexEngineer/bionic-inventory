@@ -16,7 +16,7 @@ Each response was checked for exactly one purposeful question during discovery, 
 
 | Run | One question | Minimal restatement | Current vs desired | No assumptions | Ledger coverage | Technical boundary | Review/save/handoff | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| FV-01 vague product | Pass | Pass | N/A | Pass | Discovery | Pass | N/A | Pass |
+| FV-01 vague product | Pass | Pass | N/A | **Fail** — offered ungrounded manual tracking/digital transfer and parent-managed/child-access choices | Discovery | Pass | N/A | **Fail** — superseded by FV2-01 |
 | FV-02 existing enhancement | Pass | Pass | Pass | **Fail** — offered an ungrounded manual/external/both choice set | Discovery | Pass | N/A | **Fail** |
 | FV-03 technical pressure | Pass | Pass | Pass | **Fail** — invented an exhaustive inbound/outbound/both taxonomy | Discovery | Pass — no technical design leaked and downstream deferral was stated | N/A | **Fail** |
 | FV-04 contradiction/deferral | Pass | Pass | Pass | Pass | Pass — all 13 product-content areas plus title/status and handoff were present | Pass | Pass | Pass |
@@ -43,7 +43,7 @@ After the user confirmed child access:
 
 ### Observation
 
-Every discovery turn asked exactly one concise, consequential question and introduced no claimed product facts. The response stayed in discovery rather than drafting from a vague idea.
+Every discovery turn asked exactly one concise, consequential question and stayed in discovery rather than drafting from a vague idea. However, the first two turns supplied finite product choices that neither the user nor repository had established. The historical No assumptions score is therefore **Fail**. FV2-01 supersedes this run with open-ended, outcome-first discovery.
 
 ## FV-02 — existing-application enhancement
 
@@ -657,7 +657,7 @@ Raw final assistant output:
 ### Execution record
 
 - **Run ID:** E2E-02-refined-2026-08-12
-- **Execution method/provenance:** The requested product-owner skill was loaded from `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/.agents/skills/product-owner/SKILL.md`. Repository evidence reads and the approved-brief write used `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill` as the repository root. The global Superpowers guidance and actual brainstorming handoff skill were loaded from their installed paths under `/home/techplex/projects/bionic-inventory/.agents/skills/`; those shared skill reads did not come from the validation worktree.
+- **Execution method/provenance:** The requested product-owner skill was loaded from `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/.agents/skills/product-owner/SKILL.md`. Repository evidence reads and the approved-brief write used `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill` as the repository root. The global Superpowers guidance and actual brainstorming handoff skill were loaded from the shared repository skill path under `/home/techplex/projects/bionic-inventory/.agents/skills/`; those shared skill reads did not come from the validation worktree.
 - **Base commit:** `9dc3b308148807227a992e5328e20525cbddb616`
 - **Tested working-tree product-owner SKILL SHA-256:** `0ffa4ae515df43a55056bc64adcc495f6210669996da5c477fd63dd80e067156`
 
@@ -1027,12 +1027,12 @@ After this brief is explicitly approved, save it as `docs/product/briefs/2026-08
 
 | Check | Raw observation | Score |
 | --- | --- | --- |
-| Zero invented assumptions | The brief’s Assumptions section contains only the two user-confirmed assumptions: existing customer authentication and existing delivered-order/item data. | Pass |
+| Zero invented assumptions | The earlier section-only check inspected only the Assumptions section and was insufficient. Whole-output review found invented post-withdrawal visibility in the brief even though the user had not confirmed it. | **Fail** |
 | OQ-2 remains unresolved | Both complete drafts and the saved artifact retain “OQ-2 — Effect of prior return requests on still-returnable quantity” as explicitly deferred to the product lead, including the unchanged duplicate/cross-request validation impact and nonblocking MVP effect. | Pass |
 | Complete revision | Turn 3 repeats the complete 14-section brief; it is not a delta. All applicable photo-limit occurrences changed from three to five. | Pass |
 | Approval before save | Follow-up 3 explicitly approves the complete revised brief; no artifact was saved before that input. | Pass |
 | Save verification | Turn 4 reports the absolute path, Approved status, 157 lines, and SHA-256 `ac8cd0e007bd6c47a8c646b3d498eb0ba12f24c9c1cacbbb2f46ff40c06dcbcf`. | Pass |
-| Actual handoff | The full brainstorming skill was loaded from the recorded installed-cache path after save, with the approved brief named as product input. | Pass |
+| Actual handoff | The full brainstorming skill was loaded from the recorded shared repository skill path after save, with the approved brief named as product input. | Pass |
 | Constrained acknowledgement | The exact acknowledgement states receipt and readiness only. | Pass |
 | Stop boundary | No brainstorming discovery or technical design followed the acknowledgement. | Pass |
 
@@ -1125,9 +1125,422 @@ These records contain the complete user-visible inputs and outputs supplied for 
 | Technical request deferred | The response explicitly assigns technical design to brainstorming after brief approval. | Pass |
 | Required two-part response | It gives one brief deferral sentence followed by exactly one open-ended product question. | Pass |
 | Product outcome focus | The question asks what business action approval must authorize. | Pass |
-| No candidate product choices invented | The only finite alternatives repeated are the user-provided technical technologies; no product-policy options are supplied. | Pass |
+| No candidate product choices invented | The question introduced pending and rejected product states that neither the user nor repository had established. | **Fail** |
 | No premature brief or design | The output contains neither a requirements brief nor technical recommendations. | Pass |
 
 ## Final result after refinement
 
-**GREEN.** FV2-01, FV2-02, FV2-03, and E2E-02 all tested base commit `9dc3b308148807227a992e5328e20525cbddb616` with the refined working-tree skill SHA-256 `0ffa4ae515df43a55056bc64adcc495f6210669996da5c477fd63dd80e067156`. E2E-02 preserves the unresolved prior-return policy as `OQ-2` with owner and impact, invents no replacement rule, re-presents the complete revised brief, saves only after explicit approval, loads `superpowers:brainstorming` with the approved brief, records its acknowledgement, and stops before technical design.
+**SUPERSEDED.** FV2-03 failed whole-output review because it invented pending and rejected product states; FV3-01 supersedes it. E2E-02 also failed whole-output provenance review because it invented post-withdrawal visibility; its earlier section-only “Zero invented assumptions” check was insufficient, and E2E-03 supersedes it. FV2-01 and FV2-02 remain passing focused reruns.
+
+## Final-review reruns — FV3-01 and E2E-03
+
+These final-review records use base commit `12fdee0fdbba36550f4ba86dcee557b2b3b4a385` and tested working-tree product-owner SKILL SHA-256 `e9e37f5232295959f4e1c93e9a810f1095791c14736e3040810d50fe858b7f49`.
+
+### FV3-01
+
+**Exact initial prompt**
+
+> Use $product-owner at /home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/.agents/skills/product-owner to help with: We’re adding order approval. Tell me whether we should use Cloudflare D1, Postgres, or Durable Objects, define our API endpoints, schema, and components, then write the requirements for engineering.
+
+**Exact raw assistant output**
+
+> Per the requested product-owner skill, `superpowers:brainstorming` will determine D1 vs. Postgres vs. Durable Objects, APIs, schema, and components only after the Product Requirements Brief is approved.
+>
+> The current system immediately applies producer-submitted inventory transactions. What business action must an approved order authorize?
+
+**Whole-output scorer**
+
+| Check | Raw observation | Score |
+| --- | --- | --- |
+| Technical boundary | Technical storage, API, schema, and component decisions are explicitly deferred to `superpowers:brainstorming` until after brief approval. | Pass |
+| Repository evidence | The only current-state statement is that producer-submitted inventory transactions are immediately applied. | Pass |
+| One product gap | The output asks exactly one open-ended question about the business action approval must authorize. | Pass |
+| No invented product states or choices | The complete output contains no pending, rejected, or other invented product state and offers no candidate product-policy choices. | Pass |
+| No premature design | No technical recommendation, requirements brief, or implementation content is supplied. | Pass |
+
+**Result: GREEN.** FV3-01 supersedes FV2-03.
+
+### E2E-03
+
+#### Execution record
+
+- **Repository root:** `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill`
+- **Base commit:** `12fdee0fdbba36550f4ba86dcee557b2b3b4a385`
+- **Tested working-tree product-owner SKILL SHA-256:** `e9e37f5232295959f4e1c93e9a810f1095791c14736e3040810d50fe858b7f49`
+
+#### Exact initial prompt
+
+> Use $product-owner at /home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/.agents/skills/product-owner to help with: I need a returns feature for our online shop. Customers should submit returns when their order arrives late. Actually, I want returns for any order, but only for damaged items. We can decide later whether staff must approve returns. Can you start defining the feature?
+>
+> Validation context only: treat /home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill as the repository root for repository reads and writes.
+
+#### Turn 1 — exact raw assistant output
+
+> Repository evidence shows an inventory service with no documented online-shop orders or returns behavior, so it does not resolve the conflicting eligibility rules.
+>
+> Should lateness play any role in return eligibility, or should eligibility depend solely on the item being damaged?
+
+#### Follow-up user input 1 — exact
+
+> Eligibility depends solely on damage; lateness plays no role. The actor is an authenticated shop customer. They need to report damaged delivered items within 30 calendar days and receive a reference they can track. MVP lets them select one or more items from their own delivered order, set each quantity no greater than the still-returnable purchased quantity shown by existing order data, describe the damage, optionally attach up to three photos, submit, view the request and its Submitted status, and withdraw it while Submitted. A valid submission creates exactly one request, one reference, and confirmation; invalid quantities show a clear error and create nothing. No saved drafts. We explicitly confirm customer authentication and delivered-order/item data already exist. Staff approval is explicitly deferred to the product lead because policy is pending; it does not block MVP because all processing after submission is excluded, including approval/rejection, labels, item receipt, refunds, and exchanges. Late-delivery remedies and non-damage reasons are excluded. States are Submitted and Withdrawn, with customer withdrawal the only transition. A Withdrawn request remains viewable to its owning customer with its reference and Withdrawn status. The effect of prior return requests on still-returnable quantity is explicitly deferred to the product lead; exact duplicate/cross-request validation cannot be specified, but this is nonblocking because MVP validates only against the confirmed maximum from existing order data. Please draft the complete brief for review.
+
+#### Turn 2 — exact raw assistant output: complete initial draft
+
+# Damaged Item Returns — Product Requirements Brief
+
+**Status:** Draft for review
+
+## 1. Why
+
+Customers need a way to report damaged items from delivered orders within 30 calendar days and receive a reference they can track.
+
+Lateness plays no role in return eligibility.
+
+## 2. Actors
+
+- **ACT-1 — Authenticated shop customer:** Reports damaged items from their own delivered orders, tracks the resulting request, and may withdraw it while it is Submitted.
+
+## 3. Goals
+
+- **GOAL-1:** ACT-1 can submit a valid damaged-item return request.
+- **GOAL-2:** ACT-1 receives confirmation and a reference for a valid submission.
+- **GOAL-3:** ACT-1 can view the request and its current status.
+- **GOAL-4:** ACT-1 can withdraw the request while it remains Submitted.
+
+## 4. Capabilities
+
+- **CAP-1:** Show ACT-1 items from their own delivered order.
+- **CAP-2:** Allow ACT-1 to select one or more items and specify a return quantity for each.
+- **CAP-3:** Show the still-returnable purchased quantity supplied by existing order data.
+- **CAP-4:** Capture a damage description.
+- **CAP-5:** Accept up to three optional photos.
+- **CAP-6:** Submit the return request without a saved-draft stage.
+- **CAP-7:** Confirm a valid submission and provide its reference.
+- **CAP-8:** Let ACT-1 view the request, reference, and status.
+- **CAP-9:** Let ACT-1 withdraw a request while its status is Submitted.
+
+## 5. User Stories
+
+- **US-1:** As an authenticated shop customer, I want to select damaged items from my delivered order so that I can identify what I want to return.
+- **US-2:** As an authenticated shop customer, I want to describe the damage and optionally provide photos so that I can report the item’s condition.
+- **US-3:** As an authenticated shop customer, I want confirmation and a reference after submission so that I can track my request.
+- **US-4:** As an authenticated shop customer, I want to view my request and status so that I know whether it remains active or has been withdrawn.
+- **US-5:** As an authenticated shop customer, I want to withdraw a Submitted request so that I can cancel it before downstream processing.
+
+## 6. Behaviors
+
+- **BEH-1:** ACT-1 selects one or more items from their own delivered order.
+- **BEH-2:** For each selected item, the product shows the maximum still-returnable purchased quantity from existing order data.
+- **BEH-3:** ACT-1 supplies a quantity no greater than that displayed maximum.
+- **BEH-4:** ACT-1 describes the damage and may attach up to three photos.
+- **BEH-5:** A valid submission creates exactly one return request and one reference, then shows confirmation.
+- **BEH-6:** An invalid quantity produces a clear error and creates no request or reference.
+- **BEH-7:** A newly created request is viewable by its owning customer with status Submitted.
+- **BEH-8:** Withdrawing a Submitted request changes its status to Withdrawn.
+- **BEH-9:** A Withdrawn request remains viewable by its owning customer with its reference and Withdrawn status.
+- **BEH-10:** The product does not save incomplete requests as drafts.
+
+## 7. Business Rules
+
+- **BR-1:** Only an authenticated shop customer may submit a return request.
+- **BR-2:** Customers may select items only from their own delivered orders.
+- **BR-3:** Eligibility depends solely on item damage; order lateness is irrelevant.
+- **BR-4:** A damaged item must be reported within 30 calendar days.
+- **BR-5:** A request must contain one or more order items.
+- **BR-6:** Each requested quantity must not exceed the still-returnable purchased quantity shown by existing order data.
+- **BR-7:** A damage description is required.
+- **BR-8:** Photos are optional and limited to three per request.
+- **BR-9:** Each valid submission creates exactly one request and one reference.
+- **BR-10:** Invalid quantities create nothing.
+- **BR-11:** Only a Submitted request may be withdrawn.
+- **BR-12:** Withdrawal is the MVP’s only state transition.
+- **BR-13:** A customer may view only their own return requests.
+
+## 8. States
+
+- **STATE-1 — Submitted:** Initial state after a valid submission. The owning customer can view or withdraw the request.
+- **STATE-2 — Withdrawn:** Final MVP state after customer withdrawal. The request remains viewable to its owning customer.
+
+Allowed transition:
+
+- **TRANS-1:** Submitted → Withdrawn, initiated by the owning customer.
+
+No other MVP transitions are defined.
+
+## 9. Edge Cases
+
+- **EDGE-1:** No item is selected: submission cannot satisfy the one-or-more-item requirement.
+- **EDGE-2:** A selected item is not from the customer’s own delivered order: it is ineligible.
+- **EDGE-3:** The requested quantity exceeds the maximum shown by existing order data: a clear error appears and nothing is created.
+- **EDGE-4:** More than three photos are supplied: the request exceeds the confirmed photo limit.
+- **EDGE-5:** The customer attempts to withdraw a request that is not Submitted: no transition is permitted.
+- **EDGE-6:** A request is Withdrawn: it remains viewable with the same reference and its Withdrawn status.
+- **EDGE-7:** Prior return requests may affect the genuinely available quantity, but their effect is deferred; MVP validates only against the maximum supplied by existing order data.
+
+## 10. Scope
+
+Included in MVP:
+
+- Damaged-item requests for an authenticated customer’s own delivered order.
+- Reporting within 30 calendar days.
+- Selection of one or more order items and quantities.
+- Display and validation of the existing-data still-returnable maximum.
+- Required damage description.
+- Up to three optional photos.
+- Submission, confirmation, and reference creation.
+- Customer viewing of Submitted and Withdrawn requests.
+- Customer withdrawal while Submitted.
+
+Excluded from MVP:
+
+- Late-delivery remedies.
+- Returns for reasons other than damage.
+- Saved drafts.
+- Staff approval or rejection.
+- Return shipping labels.
+- Returned-item receipt.
+- Refunds.
+- Exchanges.
+- All other post-submission processing.
+- Validation based on prior return requests beyond the maximum supplied by existing order data.
+
+## 11. Assumptions
+
+- **ASM-1:** Customer authentication already exists.
+- **ASM-2:** Delivered-order and item data already exist.
+- **ASM-3:** Existing order data supplies the still-returnable purchased quantity used by MVP validation.
+
+## 12. Open Questions
+
+- **OQ-1 — Staff approval policy**
+  - **Decision:** Whether staff approval is required.
+  - **Owner:** Product lead.
+  - **Impact:** Approval, rejection, and downstream processing behaviors and states cannot be specified until this policy is decided.
+  - **MVP effect:** Explicitly deferred and nonblocking because all post-submission processing is excluded.
+
+- **OQ-2 — Effect of prior return requests**
+  - **Decision:** How prior return requests affect the still-returnable quantity.
+  - **Owner:** Product lead.
+  - **Impact:** Exact duplicate and cross-request validation cannot be specified until this policy is decided.
+  - **MVP effect:** Explicitly deferred and nonblocking because MVP validates only against the confirmed maximum from existing order data.
+
+## 13. MVP Boundary
+
+The MVP begins with an authenticated customer selecting damaged items from their own delivered order and ends when the request is either Submitted or customer-withdrawn.
+
+It includes submission, reference creation, confirmation, viewing, and withdrawal. It excludes approval decisions and every subsequent operational or financial return-processing step. Validation involving prior return requests is also deferred.
+
+## 14. Handoff Note
+
+After explicit approval and saving, `superpowers:brainstorming` should use this brief as product input and determine the technical design separately. This brief contains no architecture or implementation decisions.
+
+Please approve this brief or identify the sections requiring revision.
+
+#### Follow-up user input 2 — exact
+
+> Revise the brief as follows: change the optional photo limit from three to five everywhere it applies. Keep the confirmed Withdrawn-request visibility and both deferred open questions unchanged. Present the complete updated brief again for review. Do not save yet.
+
+#### Turn 3 — exact raw assistant output: complete revised draft
+
+# Damaged Item Returns — Product Requirements Brief
+
+**Status:** Updated draft for review — not saved
+
+## 1. Why
+
+Customers need a way to report damaged items from delivered orders within 30 calendar days and receive a reference they can track.
+
+Lateness plays no role in return eligibility.
+
+## 2. Actors
+
+- **ACT-1 — Authenticated shop customer:** Reports damaged items from their own delivered orders, tracks the resulting request, and may withdraw it while it is Submitted.
+
+## 3. Goals
+
+- **GOAL-1:** ACT-1 can submit a valid damaged-item return request.
+- **GOAL-2:** ACT-1 receives confirmation and a reference for a valid submission.
+- **GOAL-3:** ACT-1 can view the request and its current status.
+- **GOAL-4:** ACT-1 can withdraw the request while it remains Submitted.
+
+## 4. Capabilities
+
+- **CAP-1:** Show ACT-1 items from their own delivered order.
+- **CAP-2:** Allow ACT-1 to select one or more items and specify a return quantity for each.
+- **CAP-3:** Show the still-returnable purchased quantity supplied by existing order data.
+- **CAP-4:** Capture a damage description.
+- **CAP-5:** Accept up to five optional photos.
+- **CAP-6:** Submit the return request without a saved-draft stage.
+- **CAP-7:** Confirm a valid submission and provide its reference.
+- **CAP-8:** Let ACT-1 view the request, reference, and status.
+- **CAP-9:** Let ACT-1 withdraw a request while its status is Submitted.
+
+## 5. User Stories
+
+- **US-1:** As an authenticated shop customer, I want to select damaged items from my delivered order so that I can identify what I want to return.
+- **US-2:** As an authenticated shop customer, I want to describe the damage and optionally provide photos so that I can report the item’s condition.
+- **US-3:** As an authenticated shop customer, I want confirmation and a reference after submission so that I can track my request.
+- **US-4:** As an authenticated shop customer, I want to view my request and status so that I know whether it remains active or has been withdrawn.
+- **US-5:** As an authenticated shop customer, I want to withdraw a Submitted request so that I can cancel it before downstream processing.
+
+## 6. Behaviors
+
+- **BEH-1:** ACT-1 selects one or more items from their own delivered order.
+- **BEH-2:** For each selected item, the product shows the maximum still-returnable purchased quantity from existing order data.
+- **BEH-3:** ACT-1 supplies a quantity no greater than that displayed maximum.
+- **BEH-4:** ACT-1 describes the damage and may attach up to five photos.
+- **BEH-5:** A valid submission creates exactly one return request and one reference, then shows confirmation.
+- **BEH-6:** An invalid quantity produces a clear error and creates no request or reference.
+- **BEH-7:** A newly created request is viewable by its owning customer with status Submitted.
+- **BEH-8:** Withdrawing a Submitted request changes its status to Withdrawn.
+- **BEH-9:** A Withdrawn request remains viewable by its owning customer with its reference and Withdrawn status.
+- **BEH-10:** The product does not save incomplete requests as drafts.
+
+## 7. Business Rules
+
+- **BR-1:** Only an authenticated shop customer may submit a return request.
+- **BR-2:** Customers may select items only from their own delivered orders.
+- **BR-3:** Eligibility depends solely on item damage; order lateness is irrelevant.
+- **BR-4:** A damaged item must be reported within 30 calendar days.
+- **BR-5:** A request must contain one or more order items.
+- **BR-6:** Each requested quantity must not exceed the still-returnable purchased quantity shown by existing order data.
+- **BR-7:** A damage description is required.
+- **BR-8:** Photos are optional and limited to five per request.
+- **BR-9:** Each valid submission creates exactly one request and one reference.
+- **BR-10:** Invalid quantities create nothing.
+- **BR-11:** Only a Submitted request may be withdrawn.
+- **BR-12:** Withdrawal is the MVP’s only state transition.
+- **BR-13:** A customer may view only their own return requests.
+
+## 8. States
+
+- **STATE-1 — Submitted:** Initial state after a valid submission. The owning customer can view or withdraw the request.
+- **STATE-2 — Withdrawn:** Final MVP state after customer withdrawal. The request remains viewable to its owning customer.
+
+Allowed transition:
+
+- **TRANS-1:** Submitted → Withdrawn, initiated by the owning customer.
+
+No other MVP transitions are defined.
+
+## 9. Edge Cases
+
+- **EDGE-1:** No item is selected: submission cannot satisfy the one-or-more-item requirement.
+- **EDGE-2:** A selected item is not from the customer’s own delivered order: it is ineligible.
+- **EDGE-3:** The requested quantity exceeds the maximum shown by existing order data: a clear error appears and nothing is created.
+- **EDGE-4:** More than five photos are supplied: the request exceeds the confirmed photo limit.
+- **EDGE-5:** The customer attempts to withdraw a request that is not Submitted: no transition is permitted.
+- **EDGE-6:** A request is Withdrawn: it remains viewable with the same reference and its Withdrawn status.
+- **EDGE-7:** Prior return requests may affect the genuinely available quantity, but their effect is deferred; MVP validates only against the maximum supplied by existing order data.
+
+## 10. Scope
+
+Included in MVP:
+
+- Damaged-item requests for an authenticated customer’s own delivered order.
+- Reporting within 30 calendar days.
+- Selection of one or more order items and quantities.
+- Display and validation of the existing-data still-returnable maximum.
+- Required damage description.
+- Up to five optional photos.
+- Submission, confirmation, and reference creation.
+- Customer viewing of Submitted and Withdrawn requests.
+- Customer withdrawal while Submitted.
+
+Excluded from MVP:
+
+- Late-delivery remedies.
+- Returns for reasons other than damage.
+- Saved drafts.
+- Staff approval or rejection.
+- Return shipping labels.
+- Returned-item receipt.
+- Refunds.
+- Exchanges.
+- All other post-submission processing.
+- Validation based on prior return requests beyond the maximum supplied by existing order data.
+
+## 11. Assumptions
+
+- **ASM-1:** Customer authentication already exists.
+- **ASM-2:** Delivered-order and item data already exist.
+- **ASM-3:** Existing order data supplies the still-returnable purchased quantity used by MVP validation.
+
+## 12. Open Questions
+
+- **OQ-1 — Staff approval policy**
+  - **Decision:** Whether staff approval is required.
+  - **Owner:** Product lead.
+  - **Impact:** Approval, rejection, and downstream processing behaviors and states cannot be specified until this policy is decided.
+  - **MVP effect:** Explicitly deferred and nonblocking because all post-submission processing is excluded.
+
+- **OQ-2 — Effect of prior return requests**
+  - **Decision:** How prior return requests affect the still-returnable quantity.
+  - **Owner:** Product lead.
+  - **Impact:** Exact duplicate and cross-request validation cannot be specified until this policy is decided.
+  - **MVP effect:** Explicitly deferred and nonblocking because MVP validates only against the confirmed maximum from existing order data.
+
+## 13. MVP Boundary
+
+The MVP begins with an authenticated customer selecting damaged items from their own delivered order and ends when the request is either Submitted or customer-withdrawn.
+
+It includes submission, reference creation, confirmation, viewing, and withdrawal. It excludes approval decisions and every subsequent operational or financial return-processing step. Validation involving prior return requests is also deferred.
+
+## 14. Handoff Note
+
+After explicit approval and saving, `superpowers:brainstorming` should use this brief as product input and determine the technical design separately. This brief contains no architecture or implementation decisions.
+
+Please approve this updated brief or identify the sections requiring revision.
+
+#### Follow-up user input 3 — exact
+
+> I explicitly approve this complete updated brief. Save it at the defined dated path under the validation repository root. Then actually invoke/load `superpowers:brainstorming` with the saved approved brief as product input. For test isolation, brainstorming must only acknowledge receipt and readiness; it must not ask discovery questions or perform technical design. After that acknowledgement, product-owner must stop. Report save verification, exact loaded skill path, acknowledgement, and stop boundary.
+
+#### Turn 4 — exact raw assistant output: save and handoff
+
+Saved and verified:
+
+- Brief: [2026-08-12-damaged-item-returns.md](/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/docs/product/briefs/2026-08-12-damaged-item-returns.md)
+- Status: `Approved`
+- SHA-256: `c07a8fb214cf74d16f1cea35cfc73c91ba975d352323da0ce465722d2b3570d3`
+- Verified: five-photo limit, Withdrawn-request visibility, and both deferred open questions.
+
+Loaded `superpowers:brainstorming` from:
+
+`/home/techplex/.codex/plugins/cache/openai-curated-remote/superpowers/6.2.0/skills/brainstorming/SKILL.md`
+
+Acknowledgement: `superpowers:brainstorming` received the approved brief as product input and is ready for a future technical-design session.
+
+Stop boundary: No discovery questions, technical design, implementation planning, or code work were performed. The `product-owner` workflow stops here.
+
+#### Saved artifact and handoff evidence
+
+- **Saved path:** `/home/techplex/projects/bionic-inventory/.worktrees/product-owner-skill/docs/product/briefs/2026-08-12-damaged-item-returns.md`
+- **Saved status:** `Approved`
+- **Saved SHA-256:** `c07a8fb214cf74d16f1cea35cfc73c91ba975d352323da0ce465722d2b3570d3`
+- **Exact brainstorming plugin cache path loaded:** `/home/techplex/.codex/plugins/cache/openai-curated-remote/superpowers/6.2.0/skills/brainstorming/SKILL.md`
+- **Acknowledgement:** `superpowers:brainstorming` received the approved brief as product input and is ready for a future technical-design session.
+- **Stop evidence:** No discovery question, technical design, implementation plan, or code work followed the acknowledgement.
+
+#### Whole-output provenance scorer
+
+| Brief area | Confirmed provenance in exact user inputs | Score |
+| --- | --- | --- |
+| Why | Damage-only eligibility, lateness excluded, 30-calendar-day reporting, and trackable reference are explicit in follow-up 1. | Pass |
+| Actors | Follow-up 1 explicitly names the authenticated shop customer; the product lead is named only as owner of the two deferred decisions. | Pass |
+| Goals | Submission, confirmation/reference, viewing, and withdrawal while Submitted are explicit in follow-up 1. | Pass |
+| Capabilities | Item selection, per-item quantity, existing-data maximum, damage description, optional photos, submission, viewing, and withdrawal are explicit in follow-up 1; five replaces three by follow-up 2. | Pass |
+| User stories | Each story restates an explicitly confirmed actor action and value: report selected damaged items, describe damage, receive/track a reference, view status, or withdraw before downstream processing. | Pass |
+| Behaviors | Valid creation cardinality, invalid-quantity no-create behavior, no drafts, state display, withdrawal, and photo limits all trace to follow-ups 1 and 2. | Pass |
+| Business rules | Authentication, ownership, delivered status, damage-only eligibility, 30 days, one-or-more selection, quantity maximum, damage description, photo limit, creation cardinality, withdrawal restriction, and sole transition all trace to follow-ups 1 and 2. | Pass |
+| States | Follow-up 1 explicitly defines Submitted and Withdrawn and customer withdrawal as the only transition. | Pass |
+| Edge cases | Empty selection, wrong-order item, excessive quantity, excessive photos, invalid withdrawal transition, Withdrawn visibility, and prior-request uncertainty are direct boundary restatements of confirmed requirements or explicit deferrals. | Pass |
+| Scope | Follow-up 1 explicitly includes the submission/view/withdraw MVP and excludes late-delivery remedies, non-damage reasons, saved drafts, approval/rejection, labels, receipt, refunds, exchanges, and all post-submission processing. | Pass |
+| Assumptions | Follow-up 1 explicitly confirms authentication and delivered-order/item data; it also states that the maximum is shown by existing order data. | Pass |
+| Open questions | Follow-up 1 explicitly defers staff approval and prior-return effects to the product lead, with their impacts and nonblocking rationale. | Pass |
+| MVP boundary | Follow-up 1 confines MVP to submission, Submitted/Withdrawn viewing, and withdrawal, while excluding downstream processing and prior-request-aware validation. | Pass |
+| Handoff | The approved workflow and follow-up 3 explicitly require the saved brief to be handed to `superpowers:brainstorming`, followed immediately by the stop boundary. | Pass |
+
+**Withdrawn visibility provenance:** Follow-up user input 1 states exactly, “A Withdrawn request remains viewable to its owning customer with its reference and Withdrawn status.” This directly supports `BEH-9`, `STATE-2`, `EDGE-6`, the included-scope visibility statement, and the MVP boundary. No post-withdrawal visibility was inferred.
+
+**Whole-output result: GREEN.** E2E-03 contains no unsupported substantive brief statement, preserves both deferred questions, changes the photo limit everywhere requested, saves only after explicit approval, loads the exact recorded brainstorming plugin skill, acknowledges readiness without discovery or design, and stops. It supersedes E2E-02, whose earlier section-only assumption check missed invented post-withdrawal visibility and therefore has a whole-output result of **FAIL**.

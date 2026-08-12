@@ -28,7 +28,7 @@ Ask exactly one concise, purposeful question about one information gap at a time
 
 ## Brief contract
 
-Draft only when every area is Confirmed, Confirmed not applicable, or explicitly deferred without blocking a coherent MVP. Every rule, behavior, and state in the draft must come from a confirmed fact, a confirmed-not-applicable item, or an explicitly deferred open question; leave unresolved details unresolved rather than silently deciding them in prose. Never present a final brief while an essential area is Contradictory. Include these sections:
+Draft only when every area is Confirmed, Confirmed not applicable, or explicitly deferred without blocking a coherent MVP. Before presenting any draft, audit every substantive statement in Why, Actors, Goals, Capabilities, User stories, Behaviors, Business rules, States, Edge cases, Scope, Assumptions, Open questions, and MVP boundary: each must trace to a confirmed fact, a confirmed-not-applicable item, or an explicitly deferred open question. Remove unsupported prose or keep the detail explicitly unresolved; never silently decide it. Never present a final brief while an essential area is Contradictory. Include these sections:
 
 1. **Title and status**
 2. **Why** — problem/opportunity and intended outcome
