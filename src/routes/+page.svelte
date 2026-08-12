@@ -20,7 +20,7 @@
 </script>
 
 <svelte:head>
-	<title>Bionic Inventory</title>
+	<title>Bionic Inventory Backend</title>
 	<meta
 		name="description"
 		content="View current inventory levels and the latest inventory change history."
@@ -30,7 +30,7 @@
 <div class="container py-4">
 	<div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center mb-4">
 		<div>
-			<h1 class="display-6 mb-2">Bionic Inventory</h1>
+			<h1 class="display-6 mb-2">Bionic Inventory Backend</h1>
 			<p class="text-body-secondary mb-0">
 				View current stock levels and the latest order and consumption activity.
 			</p>
