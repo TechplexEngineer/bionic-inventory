@@ -1,0 +1,25 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import {
+	getBoundDb,
+	getSearchQuery,
+	handleInventoryError,
+	searchInventory,
+	requireApiRole
+} from '$lib/server/inventory';
+
+export const GET: RequestHandler = async ({ platform, request, url }) => {
+	try {
+		requireApiRole(request, platform?.env, ['consumer', 'producer']);
+
+		const query = getSearchQuery(url);
+		if (!query) {
+			return json({ results: [] });
+		}
+
+		const results = await searchInventory(getBoundDb(platform), query);
+		return json({ results });
+	} catch (cause) {
+		return handleInventoryError(cause);
+	}
+};
