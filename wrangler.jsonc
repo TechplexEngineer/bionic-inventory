@@ -19,6 +19,9 @@
 			"preview_database_id": "305c793c-b1d9-4fd1-abe8-3e417162340b"
 		}
 	],
+	"vars": {
+		"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/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"
+	},	
 	"workers_dev": true,
 	"preview_urls": true
 }
