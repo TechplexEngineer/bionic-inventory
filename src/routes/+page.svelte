@@ -1,4 +1,20 @@
 <script lang="ts">
+	type InventoryTab = 'BELT_9MM' | 'BELT_15MM' | 'GEAR' | 'SPROCKET';
+
+	let selectedInventoryTab = $state<InventoryTab>('BELT_9MM');
+		
+	const inventoryTabs: { label: string; type: InventoryTab }[] = [
+		{ label: '9mm Belt', type: 'BELT_9MM' },
+		{ label: '15mm Belt', type: 'BELT_15MM' },
+		{ label: 'Gears', type: 'GEAR' },
+		{ label: 'Sprockets', type: 'SPROCKET' }
+	];
+
+function visibleParts() {
+	return data.parts.filter(
+		(part) => part.metadata.inventoryType === selectedInventoryTab
+	);
+}
 	let { data, form } = $props();
 
 	function totalQuantity() {
@@ -119,9 +135,25 @@
 		<div class="col-12">
 			<div class="card shadow-sm">
 				<div class="card-header bg-body-tertiary">
-					<h2 class="h5 mb-0">Current inventory</h2>
-				</div>
-				<div class="table-responsive">
+				<h2 class="h5 mb-3">Current inventory</h2>
+
+				<ul class="nav nav-tabs card-header-tabs">
+					{#each inventoryTabs as tab}
+						<li class="nav-item">
+							<button
+								type="button"
+								class:active={selectedInventoryTab === tab.type}
+								class="nav-link"
+								onclick={() => (selectedInventoryTab = tab.type)}
+							>
+					{tab.label}
+				</button>
+			</li>
+		{/each}
+	</ul>
+</div>
+
+<div class="table-responsive">
 					<table class="table table-striped table-hover align-middle mb-0">
 						<thead>
 							<tr>
@@ -136,15 +168,14 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#if data.parts.length === 0}
-								<tr>
+									{#if visibleParts().length === 0}								<tr>
 									<td colspan={data.isAdmin ? 6 : 5} class="text-center py-4 text-body-secondary">
 										No parts match the current search.
 									</td>
 								</tr>
 							{:else}
-								{#each data.parts as part}
-									<tr class:table-light={part.archivedAt}>
+									{#each visibleParts() as part}									
+										<tr class:table-light={part.archivedAt}>
 										<td class="fw-semibold">
 											{part.name}
 											{#if part.archivedAt}

@@ -9,8 +9,10 @@ import {
 	normalizePartArchiveInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
-	requireApiRole
-} from './inventory';
+	requireApiRole,
+	sortInventoryParts
+} from './inventory'; 
+
 
 type StoredApiKey = {
 	keyHash: string;
@@ -311,5 +313,57 @@ describe('inventory helpers', () => {
 
 	it('builds a prefix FTS query for part search', () => {
 		expect(buildFtsQuery('timing belt 9mm')).toBe('timing* AND belt* AND 9mm*');
+	});
+});
+describe('sortInventoryParts', () => {
+	it('sorts supported inventory types by numeric size', () => {
+		const makePart = (
+			name: string,
+			inventoryType: string,
+			sizeMetadata: Record<string, unknown>
+		) => ({
+			id: name,
+			name,
+			mfgPartNumber: name,
+			description: '',
+			metadata: {
+				inventoryType,
+				...sizeMetadata
+			},
+			quantity: 0,
+			archivedAt: null
+		});
+
+		const parts = [
+			makePart('9mm Belt 1000mm', 'BELT_9MM', { length: 1000 }),
+			makePart('9mm Belt 250mm', 'BELT_9MM', { length: 250 }),
+			makePart('9mm Belt 500mm', 'BELT_9MM', { length: 500 }),
+			makePart('Gear 84T', 'GEAR', { size: 84 }),
+			makePart('Gear 18T', 'GEAR', { size: 18 }),
+			makePart('Gear 48T', 'GEAR', { size: 48 }),
+			makePart('Sprocket 36T', 'SPROCKET', { size: 36 }),
+			makePart('Sprocket 12T', 'SPROCKET', { size: 12 }),
+			makePart('Sprocket 18T', 'SPROCKET', { size: 18 })
+		];
+
+		const sorted = sortInventoryParts(parts);
+
+		expect(
+			sorted
+				.filter((part) => part.metadata.inventoryType === 'BELT_9MM')
+				.map((part) => part.metadata.length)
+		).toEqual([250, 500, 1000]);
+
+		expect(
+			sorted
+				.filter((part) => part.metadata.inventoryType === 'GEAR')
+				.map((part) => part.metadata.size)
+		).toEqual([18, 48, 84]);
+
+		expect(
+			sorted
+				.filter((part) => part.metadata.inventoryType === 'SPROCKET')
+				.map((part) => part.metadata.size)
+		).toEqual([12, 18, 36]);
 	});
 });

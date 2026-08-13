@@ -432,6 +432,47 @@ export function buildFtsQuery(query: string): string {
 	return tokens.map((token) => `${token}*`).join(' AND ');
 }
 
+export function sortInventoryParts(parts: InventoryPart[]): InventoryPart[] {
+	return [...parts].sort((left, right) => {
+		const leftType = left.metadata.inventoryType;
+		const rightType = right.metadata.inventoryType;
+
+		if (leftType !== rightType) {
+			return left.name.localeCompare(right.name);
+		}
+
+		const leftSize = getInventoryPartSize(left);
+		const rightSize = getInventoryPartSize(right);
+
+		if (leftSize !== null && rightSize !== null) {
+			return leftSize - rightSize;
+		}
+
+		return left.name.localeCompare(right.name);
+	});
+}
+
+function getInventoryPartSize(part: InventoryPart): number | null {
+	const inventoryType = part.metadata.inventoryType;
+
+	let value: unknown;
+
+	if (inventoryType === 'BELT_9MM' || inventoryType === 'BELT_15MM') {
+		value = part.metadata.length;
+	} else if (inventoryType === 'GEAR' || inventoryType === 'SPROCKET') {
+		value = part.metadata.size;
+	} else {
+		return null;
+	}
+
+	const numericValue =
+		typeof value === 'number'
+			? value
+			: Number.parseFloat(String(value));
+
+	return Number.isFinite(numericValue) ? numericValue : null;
+}
+
 export async function listInventory(
 	d1: D1Database,
 	options: ListInventoryOptions = {}
@@ -490,12 +531,30 @@ export async function listInventory(
 		)
 		.orderBy(asc(parts.name));
 
-	return rows.map((row) => ({
-		...row,
-		archivedAt: row.archivedAt ?? null,
-		metadata: row.metadata ?? {},
-		quantity: Number(row.quantity)
-	}));
+		return sortInventoryParts(
+			rows.map((row) => ({
+				...row,
+				archivedAt: row.archivedAt ?? null,
+				metadata: row.metadata ?? {},
+				quantity: Number(row.quantity)
+			}))
+);
+}
+
+export async function getInventoryPartsByIds(
+	d1: D1Database,
+	partIds: string[]
+): Promise<InventoryPart[]> {
+	const uniquePartIds = [...new Set(partIds)];
+
+	if (uniquePartIds.length === 0) {
+		return [];
+	}
+
+	return listInventory(d1, {
+		id: uniquePartIds,
+		showArchived: true
+	});
 }
 
 export async function searchInventory(
@@ -527,15 +586,17 @@ export async function searchInventory(
 
 	const result = await statement.all<PartSearchRow>();
 
-	return (result.results ?? []).map((row) => ({
-		id: row.id,
-		name: row.name,
-		mfgPartNumber: row.mfg_part_number,
-		description: row.description,
-		metadata: parseMetadata(row.metadata),
-		archivedAt: row.archived_at ?? null,
-		quantity: Number(row.quantity ?? 0)
-	}));
+		return sortInventoryParts(
+			(result.results ?? []).map((row) => ({
+				id: row.id,
+				name: row.name,
+				mfgPartNumber: row.mfg_part_number,
+				description: row.description,
+				metadata: parseMetadata(row.metadata),
+				archivedAt: row.archived_at ?? null,
+				quantity: Number(row.quantity ?? 0)
+			}))
+		);
 }
 
 export async function listHistory(
