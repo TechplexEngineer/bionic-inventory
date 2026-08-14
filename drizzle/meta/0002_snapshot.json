@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "02ad9813-b629-43f3-89fd-e7391b695f85",
-  "prevId": "cbddb7a3-778c-402d-af02-91a8065b1312",
+  "id": "cbddb7a3-778c-402d-af02-91a8065b1312",
+  "prevId": "b2c4d60b-770b-441f-a1fb-d47bbf8384f4",
   "tables": {
     "api_keys": {
       "name": "api_keys",
@@ -190,179 +190,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "inventory_type_properties": {
-      "name": "inventory_type_properties",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "inventory_type_id": {
-          "name": "inventory_type_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "normalized_name": {
-          "name": "normalized_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "required": {
-          "name": "required",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "minimum": {
-          "name": "minimum",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "maximum": {
-          "name": "maximum",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "inventory_type_properties_type_name_idx": {
-          "name": "inventory_type_properties_type_name_idx",
-          "columns": [
-            "inventory_type_id",
-            "normalized_name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "inventory_type_properties_inventory_type_id_inventory_types_id_fk": {
-          "name": "inventory_type_properties_inventory_type_id_inventory_types_id_fk",
-          "tableFrom": "inventory_type_properties",
-          "tableTo": "inventory_types",
-          "columnsFrom": [
-            "inventory_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "inventory_type_properties_kind_check": {
-          "name": "inventory_type_properties_kind_check",
-          "value": "\"inventory_type_properties\".\"kind\" IN ('text', 'numeric')"
-        },
-        "inventory_type_properties_text_bounds_check": {
-          "name": "inventory_type_properties_text_bounds_check",
-          "value": "\"inventory_type_properties\".\"kind\" <> 'text' OR (\"inventory_type_properties\".\"minimum\" IS NULL AND \"inventory_type_properties\".\"maximum\" IS NULL)"
-        },
-        "inventory_type_properties_bounds_check": {
-          "name": "inventory_type_properties_bounds_check",
-          "value": "\"inventory_type_properties\".\"minimum\" IS NULL OR \"inventory_type_properties\".\"maximum\" IS NULL OR \"inventory_type_properties\".\"minimum\" <= \"inventory_type_properties\".\"maximum\""
-        }
-      }
-    },
-    "inventory_types": {
-      "name": "inventory_types",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "normalized_name": {
-          "name": "normalized_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "inventory_types_normalized_name_idx": {
-          "name": "inventory_types_normalized_name_idx",
-          "columns": [
-            "normalized_name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "parts": {
       "name": "parts",
       "columns": {
@@ -400,13 +227,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "inventory_type_id": {
-          "name": "inventory_type_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "archived_at": {
@@ -448,13 +268,6 @@
           ],
           "isUnique": false
         },
-        "parts_inventory_type_idx": {
-          "name": "parts_inventory_type_idx",
-          "columns": [
-            "inventory_type_id"
-          ],
-          "isUnique": false
-        },
         "parts_archived_at_idx": {
           "name": "parts_archived_at_idx",
           "columns": [
@@ -463,21 +276,7 @@
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "parts_inventory_type_id_inventory_types_id_fk": {
-          "name": "parts_inventory_type_id_inventory_types_id_fk",
-          "tableFrom": "parts",
-          "tableTo": "inventory_types",
-          "columnsFrom": [
-            "inventory_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

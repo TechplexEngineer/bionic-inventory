@@ -17,6 +17,13 @@
       "breakpoints": true
     },
     {
+      "idx": 2,
+      "version": "6",
+      "when": 1786555748000,
+      "tag": "0002_archived_parts",
+      "breakpoints": true
+    },
+    {
       "idx": 3,
       "version": "6",
       "when": 1786727528565,
