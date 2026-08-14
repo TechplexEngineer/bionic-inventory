@@ -1,12 +1,12 @@
 <script lang="ts">
 	import 'bootstrap/dist/css/bootstrap.min.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/Team 4909.svg';
 
 	let { children, data } = $props();
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href= />
 </svelte:head>
 
 <nav class="navbar navbar-expand navbar-dark bg-dark shadow-sm">
