@@ -99,7 +99,7 @@ export function normalizeTypeDefinition(payload: unknown): NormalizedInventoryTy
 		seenNames.add(normalizedName);
 
 		let id: string | undefined;
-		if (value.id != null) {
+		if (Object.hasOwn(value, 'id')) {
 			id = normalizeRequiredString(value.id, `${field}.id`);
 			if (seenIds.has(id)) {
 				throw new InventoryRouteError(

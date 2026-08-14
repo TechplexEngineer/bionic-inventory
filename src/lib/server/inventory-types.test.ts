@@ -199,6 +199,19 @@ describe('inventory type definition normalization', () => {
 		).toThrowError(expect.objectContaining({ code: 'DUPLICATE_PROPERTY_NAME', status: 400 }));
 	});
 
+	it('rejects a present null property ID instead of treating it as an ID-less addition', () => {
+		expect(() =>
+			normalizeTypeDefinition({
+				name: 'Belt',
+				properties: [
+					{ id: null, name: 'Width', kind: 'numeric', required: true }
+				]
+			})
+		).toThrowError(
+			expect.objectContaining({ code: 'INVALID_REQUEST', status: 400, field: 'properties[0].id' })
+		);
+	});
+
 	it('rejects non-finite and inverted numeric bounds', () => {
 		for (const property of [
 			{ name: 'Width', kind: 'numeric', required: false, minimum: Number.NaN },
