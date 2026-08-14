@@ -1,9 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
+import { apiKeys, inventoryChanges, inventoryTypes, parts } from '$lib/server/db/schema';
 import { InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+import type { InventoryPart } from './parts';
 
 export { handleInventoryError, InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+export { createPart, normalizePartInput, updatePart } from './parts';
+export type { InventoryPart, PartInput, PartPatchInput } from './parts';
 
 export type ApiRole = 'producer' | 'consumer';
 
@@ -14,16 +17,6 @@ export interface ApiKeyItem {
 	role: ApiRole;
 	createdAt: string;
 	revokedAt: string | null;
-}
-
-export interface InventoryPart {
-	id: string;
-	name: string;
-	mfgPartNumber: string;
-	description: string;
-	metadata: Record<string, unknown>;
-	quantity: number;
-	archivedAt: string | null;
 }
 
 export interface InventoryHistoryEntry {
@@ -37,13 +30,6 @@ export interface InventoryHistoryEntry {
 	usedIn: string | null;
 	note: string | null;
 	recordedAt: string;
-}
-
-export interface PartInput {
-	name: string;
-	mfgPartNumber: string;
-	description?: string;
-	metadata?: Record<string, unknown>;
 }
 
 export interface TransactionInput {
@@ -72,7 +58,10 @@ type PartSearchRow = {
 	mfg_part_number: string;
 	description: string;
 	metadata: string | Record<string, unknown> | null;
+	inventory_type_id: string | null;
+	inventory_type_name: string | null;
 	archived_at: string | null;
+	updated_at: string;
 	quantity: number | string | null;
 };
 
@@ -313,28 +302,6 @@ export async function requireApiRole(
 	return role;
 }
 
-export function normalizePartInput(payload: unknown): Required<PartInput> {
-	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('INVALID_REQUEST', 'Part payload must be a JSON object.', 400);
-	}
-
-	const name = normalizeString(payload.name, 'name');
-	const mfgPartNumber = normalizeString(payload.mfgPartNumber, 'mfgPartNumber');
-	const description = normalizeOptionalString(payload.description, 'description') ?? '';
-	const metadata = payload.metadata ?? {};
-
-	if (!isPlainObject(metadata)) {
-		throw new InventoryRouteError('INVALID_REQUEST', 'metadata must be a JSON object.', 400);
-	}
-
-	return {
-		name,
-		mfgPartNumber,
-		description,
-		metadata
-	};
-}
-
 export function normalizeTransactionInput(payload: unknown): Required<TransactionInput> {
 	if (!isPlainObject(payload)) {
 		throw new InventoryRouteError('INVALID_REQUEST', 'Transaction payload must be a JSON object.', 400);
@@ -463,10 +430,14 @@ export async function listInventory(
 			mfgPartNumber: parts.mfgPartNumber,
 			description: parts.description,
 			metadata: parts.metadata,
+			inventoryTypeId: parts.inventoryTypeId,
+			inventoryTypeName: inventoryTypes.name,
 			archivedAt: parts.archivedAt,
+			updatedAt: parts.updatedAt,
 			quantity: quantityExpression
 		})
 		.from(parts)
+		.leftJoin(inventoryTypes, eq(parts.inventoryTypeId, inventoryTypes.id))
 		.leftJoin(inventoryChanges, eq(parts.id, inventoryChanges.partId));
 
 	if (conditions.length > 0) {
@@ -481,7 +452,10 @@ export async function listInventory(
 			parts.mfgPartNumber,
 			parts.description,
 			parts.metadata,
-			parts.archivedAt
+			parts.inventoryTypeId,
+			inventoryTypes.name,
+			parts.archivedAt,
+			parts.updatedAt
 		)
 		.orderBy(asc(parts.name));
 
@@ -507,14 +481,19 @@ export async function searchInventory(
 					p.mfg_part_number,
 					p.description,
 					p.metadata,
+					p.inventory_type_id,
+					it.name AS inventory_type_name,
 					p.archived_at,
+					p.updated_at,
 					COALESCE(SUM(ic.quantity_delta), 0) AS quantity
 				FROM parts_fts
 				JOIN parts p ON p.rowid = parts_fts.rowid
+				LEFT JOIN inventory_types it ON it.id = p.inventory_type_id
 				LEFT JOIN inventory_changes ic ON ic.part_id = p.id
 				WHERE parts_fts MATCH ?
 				${showArchived ? '' : 'AND p.archived_at IS NULL'}
-				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata, p.archived_at
+				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata,
+					p.inventory_type_id, it.name, p.archived_at, p.updated_at
 				ORDER BY p.name ASC
 			`
 		)
@@ -528,7 +507,10 @@ export async function searchInventory(
 		mfgPartNumber: row.mfg_part_number,
 		description: row.description,
 		metadata: parseMetadata(row.metadata),
+		inventoryTypeId: row.inventory_type_id,
+		inventoryTypeName: row.inventory_type_name,
 		archivedAt: row.archived_at ?? null,
+		updatedAt: row.updated_at,
 		quantity: Number(row.quantity ?? 0)
 	}));
 }
@@ -570,42 +552,6 @@ export async function listHistory(
 		usedIn: row.usedIn ?? null,
 		note: row.note ?? null
 	}));
-}
-
-export async function createPart(d1: D1Database, payload: unknown): Promise<InventoryPart> {
-	const input = normalizePartInput(payload);
-	const db = getDb(d1);
-	const id = crypto.randomUUID();
-
-	try {
-		await db.insert(parts).values({
-			id,
-			name: input.name,
-			mfgPartNumber: input.mfgPartNumber,
-			description: input.description,
-			metadata: input.metadata
-		});
-	} catch (cause) {
-		if (isSqliteUniqueError(cause)) {
-			throw new InventoryRouteError(
-				'INVALID_REQUEST',
-				'A part with that manufacturer part number already exists.',
-				409
-			);
-		}
-
-		throw cause;
-	}
-
-	return {
-		id,
-		name: input.name,
-		mfgPartNumber: input.mfgPartNumber,
-		description: input.description,
-		metadata: input.metadata,
-		archivedAt: null,
-		quantity: 0
-	};
 }
 
 export async function setPartArchivedState(
@@ -747,10 +693,6 @@ function parseMetadata(value: string | Record<string, unknown> | null): Record<s
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isSqliteUniqueError(cause: unknown): boolean {
-	return cause instanceof Error && cause.message.includes('UNIQUE constraint failed');
 }
 
 function readOptionalEnvString(env: TokenEnv | undefined, key: string): string | undefined {

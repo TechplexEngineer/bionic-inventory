@@ -248,6 +248,7 @@ describe('inventory helpers', () => {
 			normalizePartInput({
 				name: 'Timing Belt',
 				mfgPartNumber: 'GT2-120',
+				inventoryTypeId: ' belt-type ',
 				description: '120 tooth timing belt',
 				metadata: {
 					teeth: 120,
@@ -258,6 +259,7 @@ describe('inventory helpers', () => {
 		).toEqual({
 			name: 'Timing Belt',
 			mfgPartNumber: 'GT2-120',
+			inventoryTypeId: 'belt-type',
 			description: '120 tooth timing belt',
 			metadata: {
 				teeth: 120,
