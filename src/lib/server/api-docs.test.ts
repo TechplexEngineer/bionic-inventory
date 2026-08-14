@@ -4,7 +4,7 @@ import { renderApiDocHtml } from './api-docs-html';
 import { GET } from '../../routes/api/+server';
 
 describe('API Documentation Endpoint with Scalar', () => {
-	it('returns structured API documentation object with all 6 routes', () => {
+	it('returns structured API documentation object with all public routes', () => {
 		const docs = getApiDocumentation();
 
 		expect(docs.title).toBe('Bionic Inventory API');
@@ -33,7 +33,14 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(endpointPaths).toContain('GET /api/history');
 		expect(endpointPaths).toContain('POST /api/parts');
 		expect(endpointPaths).toContain('PUT /api/parts');
+		expect(endpointPaths).toContain('PATCH /api/parts/{id}');
 		expect(endpointPaths).toContain('POST /api/transactions');
+		expect(endpointPaths).toContain('GET /api/types');
+		expect(endpointPaths).toContain('POST /api/types');
+		expect(endpointPaths).toContain('GET /api/types/{id}');
+		expect(endpointPaths).toContain('PUT /api/types/{id}');
+		expect(endpointPaths).toContain('DELETE /api/types/{id}');
+		expect(endpointPaths).toContain('GET /api/inventory/facets');
 
 		const inventoryEp = docs.endpoints.find((e) => e.path === '/api/inventory');
 		const paramNames = inventoryEp?.parameters?.map((p) => p.name);
@@ -41,6 +48,63 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(paramNames).toContain('mfgPartNumber');
 		expect(paramNames).toContain('id');
 		expect(paramNames).toContain('showArchived');
+	});
+
+	it('documents inventory type lifecycle and optimistic mutation contracts', () => {
+		const spec = getOpenApiSpec() as any;
+
+		expect(spec.paths['/types'].get).toBeDefined();
+		expect(spec.paths['/types'].post).toBeDefined();
+		expect(spec.paths['/types/{id}'].get).toBeDefined();
+		expect(spec.paths['/types/{id}'].put).toBeDefined();
+		expect(spec.paths['/types/{id}'].delete).toBeDefined();
+		expect(spec.paths['/parts/{id}'].patch).toBeDefined();
+		expect(spec.paths['/inventory/facets'].get).toBeDefined();
+
+		const createPart = spec.paths['/parts'].post.requestBody.content['application/json'].schema;
+		expect(createPart.required).toEqual(['name', 'mfgPartNumber', 'inventoryTypeId']);
+
+		const replaceType =
+			spec.paths['/types/{id}'].put.requestBody.content['application/json'].schema;
+		expect(replaceType.required).toEqual(['name', 'properties', 'updatedAt']);
+		expect(replaceType.properties.updatedAt.format).toBe('date-time');
+
+		const patchPart =
+			spec.paths['/parts/{id}'].patch.requestBody.content['application/json'].schema;
+		expect(patchPart.required).toEqual(['updatedAt']);
+		expect(patchPart.properties.updatedAt.format).toBe('date-time');
+		expect(patchPart.properties.metadata.description).toContain(
+			'replaces the complete metadata object'
+		);
+	});
+
+	it('documents stable property IDs, metadata filters, structured errors, and typed parts', () => {
+		const spec = getOpenApiSpec() as any;
+		const schemas = spec.components.schemas;
+
+		expect(schemas.InventoryTypeProperty.required).toContain('id');
+		expect(schemas.InventoryTypeProperty.properties.id.description).toContain('Stable');
+		expect(schemas.StructuredError.required).toEqual(['error', 'code']);
+		expect(schemas.StructuredError.properties.field.type).toBe('string');
+		expect(spec.paths['/types'].post.responses['400'].content['application/json'].schema.$ref).toBe(
+			'#/components/schemas/StructuredError'
+		);
+
+		for (const path of ['/inventory', '/inventory/facets']) {
+			const metadataParameter = spec.paths[path].get.parameters.find(
+				(parameter: any) => parameter.name === 'meta[propertyId][operator]'
+			);
+			expect(metadataParameter.examples).toMatchObject({
+				exact: { value: 'meta[property-id][exact]=Nylon' },
+				contains: { value: 'meta[property-id][contains]=nyl' },
+				minimum: { value: 'meta[property-id][min]=10' },
+				maximum: { value: 'meta[property-id][max]=20' }
+			});
+		}
+
+		for (const field of ['inventoryTypeId', 'inventoryTypeName', 'metadata', 'updatedAt']) {
+			expect(schemas.InventoryPart.properties[field]).toBeDefined();
+		}
 	});
 
 	it('generates valid OpenAPI 3.1 spec object with request body schemas', () => {
@@ -59,9 +123,10 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(spec.components.securitySchemes['x-api-token']).toBeDefined();
 
 		// Request body schema assertions for /parts POST
-		const partsPostSchema = spec.paths['/parts'].post.requestBody.content['application/json'].schema;
+		const partsPostSchema =
+			spec.paths['/parts'].post.requestBody.content['application/json'].schema;
 		expect(partsPostSchema.type).toBe('object');
-		expect(partsPostSchema.required).toEqual(['name', 'mfgPartNumber']);
+		expect(partsPostSchema.required).toEqual(['name', 'mfgPartNumber', 'inventoryTypeId']);
 		expect(partsPostSchema.properties.name).toBeDefined();
 		expect(partsPostSchema.properties.mfgPartNumber).toBeDefined();
 		expect(partsPostSchema.properties.description).toBeDefined();
@@ -72,7 +137,8 @@ describe('API Documentation Endpoint with Scalar', () => {
 		expect(partsPutSchema.properties.archived.type).toBe('boolean');
 
 		// Request body schema assertions for /transactions POST
-		const txPostSchema = spec.paths['/transactions'].post.requestBody.content['application/json'].schema;
+		const txPostSchema =
+			spec.paths['/transactions'].post.requestBody.content['application/json'].schema;
 		expect(txPostSchema.type).toBe('object');
 		expect(txPostSchema.required).toEqual(['actor', 'lines']);
 		expect(txPostSchema.properties.lines.type).toBe('array');
@@ -126,7 +192,9 @@ describe('API Documentation Endpoint with Scalar', () => {
 
 	it('returns Scalar API Reference HTML from GET /api for standard browser requests', async () => {
 		const request = new Request('https://example.com/api', {
-			headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
+			headers: {
+				accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+			}
 		});
 		const event = {
 			request,

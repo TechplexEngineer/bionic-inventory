@@ -1,10 +1,11 @@
 export interface ApiParameterDoc {
 	name: string;
-	in: 'query' | 'header' | 'body';
+	in: 'query' | 'header' | 'path' | 'body';
 	type: string;
 	required: boolean;
 	description: string;
 	default?: string;
+	examples?: Record<string, { value: string }>;
 }
 
 export interface ApiFieldDoc {
@@ -16,7 +17,7 @@ export interface ApiFieldDoc {
 
 export interface ApiEndpointDoc {
 	id: string;
-	method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+	method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 	path: string;
 	title: string;
 	description: string;
@@ -62,9 +63,9 @@ export interface ApiDocumentation {
 export function getApiDocumentation(): ApiDocumentation {
 	return {
 		title: 'Bionic Inventory API',
-		version: '1.0.0',
+		version: '2.0.0',
 		description:
-			'RESTful microservice API for managing bionic inventory parts, multi-part stock transactions, full-text search, and historical activity tracking. Provisioned D1-backed API keys from /keys are the primary authentication method; static environment tokens remain available as optional compatibility credentials.',
+			'RESTful microservice API for managing typed bionic inventory parts, validated metadata, inventory type definitions, faceted filters, multi-part stock transactions, full-text search, and historical activity tracking. Existing untyped parts remain visible for legacy compatibility. Provisioned D1-backed API keys from /keys are the primary authentication method; static environment tokens remain available as optional compatibility credentials.',
 		baseUrl: '/api',
 		authentication: {
 			description:
@@ -85,12 +86,17 @@ export function getApiDocumentation(): ApiDocumentation {
 				{
 					name: 'producer',
 					compatibilityEnvVar: 'PRODUCER_API_TOKENS',
-					description: 'Full read and write access for inventory management systems and automated tools.',
+					description:
+						'Full read and write access for inventory management systems and automated tools.',
 					permissions: [
 						'GET /api/inventory - View all parts and stock levels',
+						'GET /api/inventory/facets - List text metadata facet values',
 						'GET /api/search - Full-text search parts catalog',
 						'GET /api/history - View transaction audit history',
+						'GET /api/types and /api/types/{id} - Read inventory type definitions',
+						'POST, PUT, DELETE /api/types - Manage inventory type definitions',
 						'POST /api/parts - Create new inventory parts',
+						'PATCH /api/parts/{id} - Edit a part with optimistic concurrency',
 						'PUT /api/parts - Archive or unarchive existing parts',
 						'POST /api/transactions - Record stock changes (additions/consumption)'
 					]
@@ -101,6 +107,8 @@ export function getApiDocumentation(): ApiDocumentation {
 					description: 'Read-only access for reporting, dashboards, and inquiry services.',
 					permissions: [
 						'GET /api/inventory - View all parts and stock levels',
+						'GET /api/inventory/facets - List text metadata facet values',
+						'GET /api/types and /api/types/{id} - Read inventory type definitions',
 						'GET /api/search - Full-text search parts catalog',
 						'GET /api/history - View transaction audit history'
 					]
@@ -114,7 +122,7 @@ export function getApiDocumentation(): ApiDocumentation {
 				path: '/api/inventory',
 				title: 'List Inventory Parts',
 				description:
-					'Retrieves tracked inventory parts along with their computed current stock quantity (sum of all transaction deltas). Archived parts are hidden by default and can be included with the showArchived filter.',
+					'Retrieves tracked inventory parts along with their computed current stock quantity (sum of all transaction deltas). Existing untyped rows remain visible when no type is selected and expose null type fields. Archived parts are hidden by default. Metadata filters require exactly one typeId, use stable property IDs, combine with AND, and exclude parts missing the filtered property.',
 				allowedRoles: ['producer', 'consumer'],
 				parameters: [
 					{
@@ -148,6 +156,23 @@ export function getApiDocumentation(): ApiDocumentation {
 						required: false,
 						description:
 							'Include archived parts in the response. Supports true/false, 1/0, yes/no, or on/off.'
+					},
+					{
+						name: 'typeId',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description:
+							'Filter by one inventory type UUID. Required exactly once when any metadata filter is supplied.'
+					},
+					{
+						name: 'meta[propertyId][operator]',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description:
+							'Filter metadata by stable property ID. Text supports exact or case-insensitive contains. Numeric supports exact and inclusive min/max; either range bound may be omitted. Conflicting or repeated scalar operators are rejected.',
+						examples: metadataFilterExamples()
 					}
 				],
 				responses: [
@@ -162,20 +187,131 @@ export function getApiDocumentation(): ApiDocumentation {
 									mfgPartNumber: 'PULLEY-GT2-20T',
 									description: 'Aluminum timing pulley with 5mm bore',
 									metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+									inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+									inventoryTypeName: 'Pulley',
 									archivedAt: null,
+									updatedAt: '2026-08-14T12:00:00.000Z',
 									quantity: 42
 								}
 							]
 						}
 					},
 					{
+						status: 400,
+						description: 'A metadata filter is malformed or incompatible with its property.',
+						example: {
+							error: 'Metadata filters must use meta[propertyId][exact|contains|min|max].',
+							code: 'INVALID_REQUEST',
+							field: 'meta[invalid]'
+						}
+					},
+					{
+						status: 404,
+						description: 'The selected inventory type or property ID was not found.',
+						example: {
+							error: 'Inventory type not found.',
+							code: 'TYPE_NOT_FOUND',
+							field: 'typeId'
+						}
+					},
+					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					}
 				],
-				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/inventory"`,
+				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/inventory?typeId=type-uuid&meta[property-uuid][contains]=nyl"`,
 				javascriptExample: `const response = await fetch('/api/inventory', {
+  headers: { 'x-api-token': 'your-consumer-token' }
+});
+const data = await response.json();`
+			},
+			{
+				id: 'get-inventory-facets',
+				method: 'GET',
+				path: '/api/inventory/facets',
+				title: 'List Inventory Metadata Facets',
+				description:
+					'Returns distinct currently present values for each text property of the selected type. Every facet keeps search, archive, exact inventory, and other-property metadata filters while omitting only its own property filter. Values collapse without regard to ASCII casing and include matching counts.',
+				allowedRoles: ['producer', 'consumer'],
+				parameters: [
+					{
+						name: 'typeId',
+						in: 'query',
+						type: 'string',
+						required: true,
+						description: 'Inventory type UUID whose text properties should be faceted.'
+					},
+					{
+						name: 'q',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description: 'Full-text search applied before facet counts are calculated.'
+					},
+					{
+						name: 'mfgPartNumber',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description: 'Repeated or comma-separated manufacturer part number filter.'
+					},
+					{
+						name: 'id',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description: 'Repeated or comma-separated part UUID filter.'
+					},
+					{
+						name: 'showArchived',
+						in: 'query',
+						type: 'boolean',
+						required: false,
+						description: 'Include archived parts when calculating facet values.'
+					},
+					{
+						name: 'meta[propertyId][operator]',
+						in: 'query',
+						type: 'string',
+						required: false,
+						description:
+							'Uses the same stable-ID exact, contains, min, and max syntax and validation as GET /inventory.',
+						examples: metadataFilterExamples()
+					}
+				],
+				responses: [
+					{
+						status: 200,
+						description: 'Text metadata facets retrieved successfully.',
+						example: {
+							facets: [
+								{
+									propertyId: 'property-uuid',
+									values: [
+										{ value: 'Nylon', count: 3 },
+										{ value: 'Rubber', count: 1 }
+									]
+								}
+							]
+						}
+					},
+					structuredError(
+						400,
+						'A required filter is missing or invalid.',
+						'INVALID_REQUEST',
+						'typeId'
+					),
+					structuredError(
+						404,
+						'The selected type or property was not found.',
+						'TYPE_NOT_FOUND',
+						'typeId'
+					),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/inventory/facets?typeId=type-uuid&meta[property-uuid][exact]=Nylon"`,
+				javascriptExample: `const response = await fetch('/api/inventory/facets?typeId=type-uuid', {
   headers: { 'x-api-token': 'your-consumer-token' }
 });
 const data = await response.json();`
@@ -218,7 +354,10 @@ const data = await response.json();`
 									mfgPartNumber: 'PULLEY-GT2-20T',
 									description: 'Aluminum timing pulley with 5mm bore',
 									metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+									inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+									inventoryTypeName: 'Pulley',
 									archivedAt: null,
+									updatedAt: '2026-08-14T12:00:00.000Z',
 									quantity: 42
 								}
 							]
@@ -227,12 +366,15 @@ const data = await response.json();`
 					{
 						status: 400,
 						description: 'Search query does not contain valid search tokens.',
-						example: { error: 'Search query must contain letters or numbers.' }
+						example: {
+							error: 'Search query must contain letters or numbers.',
+							code: 'INVALID_REQUEST'
+						}
 					},
 					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					}
 				],
 				curlExample: `curl -H "Authorization: Bearer your-consumer-token" "https://example.com/api/search?q=gt2"`,
@@ -290,12 +432,15 @@ const data = await response.json();`
 					{
 						status: 400,
 						description: 'Invalid limit parameter.',
-						example: { error: 'The "limit" query parameter must be a positive integer.' }
+						example: {
+							error: 'The "limit" query parameter must be a positive integer.',
+							code: 'INVALID_REQUEST'
+						}
 					},
 					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					}
 				],
 				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/history?limit=50"`,
@@ -310,7 +455,7 @@ const data = await response.json();`
 				path: '/api/parts',
 				title: 'Create Part',
 				description:
-					'Registers a new part in the catalog. Requires a unique manufacturer part number (`mfgPartNumber`).',
+					'Registers a new typed part. Every new part requires a valid inventoryTypeId, and metadata is canonicalized and validated against the current definition. Undefined extra metadata keys remain allowed.',
 				allowedRoles: ['producer'],
 				requestBody: {
 					description: 'JSON object describing the new part.',
@@ -335,16 +480,24 @@ const data = await response.json();`
 							description: 'Optional part description (defaults to empty string).'
 						},
 						{
+							name: 'inventoryTypeId',
+							type: 'string',
+							required: true,
+							description: 'Existing inventory type UUID used to validate metadata.'
+						},
+						{
 							name: 'metadata',
 							type: 'object',
 							required: false,
-							description: 'Free-form JSON object for additional custom metadata.'
+							description:
+								'JSON object validated against the selected type. Required defined fields must be present; defined keys are canonicalized without regard to case; extra undefined keys are preserved.'
 						}
 					],
 					example: {
 						name: '20T GT2 Pulley',
 						mfgPartNumber: 'PULLEY-GT2-20T',
 						description: 'Aluminum timing pulley with 5mm bore',
+						inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
 						metadata: {
 							teeth: 20,
 							pitch: 'GT2',
@@ -363,7 +516,10 @@ const data = await response.json();`
 								mfgPartNumber: 'PULLEY-GT2-20T',
 								description: 'Aluminum timing pulley with 5mm bore',
 								metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+								inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+								inventoryTypeName: 'Pulley',
 								archivedAt: null,
+								updatedAt: '2026-08-14T12:00:00.000Z',
 								quantity: 0
 							}
 						}
@@ -371,22 +527,42 @@ const data = await response.json();`
 					{
 						status: 400,
 						description: 'Invalid JSON payload or missing required fields.',
-						example: { error: 'mfgPartNumber must be a non-empty string.' }
+						example: {
+							error: 'mfgPartNumber must be a non-empty string.',
+							code: 'INVALID_REQUEST',
+							field: 'mfgPartNumber'
+						}
+					},
+					{
+						status: 404,
+						description: 'The selected inventory type was not found.',
+						example: {
+							error: 'Inventory type not found.',
+							code: 'TYPE_NOT_FOUND',
+							field: 'inventoryTypeId'
+						}
 					},
 					{
 						status: 409,
 						description: 'Conflict: Manufacturer part number already exists.',
-						example: { error: 'A part with that manufacturer part number already exists.' }
+						example: {
+							error: 'A part with that manufacturer part number already exists.',
+							code: 'INVALID_REQUEST',
+							field: 'mfgPartNumber'
+						}
 					},
 					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					},
 					{
 						status: 403,
 						description: 'Token does not have producer role.',
-						example: { error: 'This API token is not allowed to perform that action.' }
+						example: {
+							error: 'This API token is not allowed to perform that action.',
+							code: 'INVALID_REQUEST'
+						}
 					}
 				],
 				curlExample: `curl -X POST "https://example.com/api/parts" \\
@@ -396,6 +572,7 @@ const data = await response.json();`
     "name": "20T GT2 Pulley",
     "mfgPartNumber": "PULLEY-GT2-20T",
     "description": "Aluminum timing pulley",
+	"inventoryTypeId": "type-uuid-here",
     "metadata": { "teeth": 20, "pitch": "GT2" }
   }'`,
 				javascriptExample: `const response = await fetch('/api/parts', {
@@ -408,6 +585,7 @@ const data = await response.json();`
     name: '20T GT2 Pulley',
     mfgPartNumber: 'PULLEY-GT2-20T',
     description: 'Aluminum timing pulley',
+	inventoryTypeId: 'type-uuid-here',
     metadata: { teeth: 20, pitch: 'GT2' }
   })
 });
@@ -419,7 +597,7 @@ const data = await response.json();`
 				path: '/api/parts',
 				title: 'Archive or Unarchive Part',
 				description:
-					'Marks an existing part as archived instead of deleting it, or clears the archived flag to unarchive it.',
+					"Marks an existing part as archived instead of deleting it, or clears the archived flag to unarchive it. This legacy compatibility mutation does not require updatedAt and does not remove the part's inventory type reference.",
 				allowedRoles: ['producer'],
 				requestBody: {
 					description: 'JSON object identifying the part and desired archived state.',
@@ -454,7 +632,10 @@ const data = await response.json();`
 								mfgPartNumber: 'PULLEY-GT2-20T',
 								description: 'Aluminum timing pulley with 5mm bore',
 								metadata: { teeth: 20, pitch: 'GT2', boreMm: 5 },
+								inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+								inventoryTypeName: 'Pulley',
 								archivedAt: '2026-08-12T10:00:00.000Z',
+								updatedAt: '2026-08-14T12:00:00.000Z',
 								quantity: 42
 							}
 						}
@@ -462,22 +643,28 @@ const data = await response.json();`
 					{
 						status: 400,
 						description: 'Invalid archive request body.',
-						example: { error: 'archived must be a boolean.' }
+						example: {
+							error: 'archived must be a boolean.',
+							code: 'INVALID_REQUEST'
+						}
 					},
 					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					},
 					{
 						status: 403,
 						description: 'Token does not have producer role.',
-						example: { error: 'This API token is not allowed to perform that action.' }
+						example: {
+							error: 'This API token is not allowed to perform that action.',
+							code: 'INVALID_REQUEST'
+						}
 					},
 					{
 						status: 404,
 						description: 'Part was not found.',
-						example: { error: 'Part not found.' }
+						example: { error: 'Part not found.', code: 'INVALID_REQUEST' }
 					}
 				],
 				curlExample: `curl -X PUT "https://example.com/api/parts" \\
@@ -499,6 +686,229 @@ const data = await response.json();`
   })
 });
 const data = await response.json();`
+			},
+			{
+				id: 'patch-part',
+				method: 'PATCH',
+				path: '/api/parts/{id}',
+				title: 'Edit Part',
+				description:
+					'Partially edits a part while validating the complete resulting record against its current or destination type. updatedAt is the required optimistic-concurrency precondition. Omitted ordinary fields keep stored values; supplied metadata replaces the whole metadata object rather than deep merging. A grandfathered nonconforming part remains readable but any edit must repair the complete record.',
+				allowedRoles: ['producer'],
+				parameters: [pathIdParameter('Part UUID to edit.')],
+				requestBody: {
+					description: 'Partial part fields plus the last observed updatedAt value.',
+					contentType: 'application/json',
+					fields: [
+						{
+							name: 'name',
+							type: 'string',
+							required: false,
+							description: 'Replacement part name.'
+						},
+						{
+							name: 'mfgPartNumber',
+							type: 'string',
+							required: false,
+							description: 'Replacement unique manufacturer part number.'
+						},
+						{
+							name: 'description',
+							type: 'string',
+							required: false,
+							description: 'Replacement description.'
+						},
+						{
+							name: 'inventoryTypeId',
+							type: 'string',
+							required: false,
+							description:
+								'Destination inventory type UUID; existing metadata must conform if metadata is omitted.'
+						},
+						{
+							name: 'metadata',
+							type: 'object',
+							required: false,
+							description:
+								'When supplied, replaces the complete metadata object and is canonicalized and validated.'
+						},
+						{
+							name: 'updatedAt',
+							type: 'string',
+							required: true,
+							description: 'ISO-8601 timestamp last read by the client.'
+						}
+					],
+					example: {
+						metadata: { Material: 'Nylon', Width: 12 },
+						updatedAt: '2026-08-14T12:00:00.000Z'
+					}
+				},
+				responses: [
+					{
+						status: 200,
+						description: 'Part updated successfully.',
+						example: { part: inventoryPartExample() }
+					},
+					structuredError(
+						400,
+						'The resulting typed part is invalid.',
+						'METADATA_REQUIRED',
+						'metadata.Material'
+					),
+					structuredError(404, 'The part or destination type was not found.', 'PART_NOT_FOUND'),
+					structuredError(
+						409,
+						'The part changed after the client read it.',
+						'PART_UPDATE_CONFLICT',
+						'updatedAt'
+					),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST'),
+					structuredError(403, 'Token does not have producer role.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -X PATCH "https://example.com/api/parts/part-uuid" \\
+  -H "x-api-token: your-producer-token" -H "Content-Type: application/json" \\
+  -d '{"metadata":{"Material":"Nylon","Width":12},"updatedAt":"2026-08-14T12:00:00.000Z"}'`,
+				javascriptExample: `await fetch('/api/parts/part-uuid', {
+  method: 'PATCH',
+  headers: { 'x-api-token': 'your-producer-token', 'Content-Type': 'application/json' },
+  body: JSON.stringify({ metadata: { Material: 'Nylon', Width: 12 }, updatedAt })
+});`
+			},
+			{
+				id: 'list-types',
+				method: 'GET',
+				path: '/api/types',
+				title: 'List Inventory Types',
+				description:
+					'Lists every inventory type with its complete property definition and stable property IDs.',
+				allowedRoles: ['producer', 'consumer'],
+				responses: [
+					{
+						status: 200,
+						description: 'Inventory types retrieved successfully.',
+						example: { types: [inventoryTypeExample()] }
+					},
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/types"`,
+				javascriptExample: `const { types } = await (await fetch('/api/types', { headers: { 'x-api-token': token } })).json();`
+			},
+			{
+				id: 'create-type',
+				method: 'POST',
+				path: '/api/types',
+				title: 'Create Inventory Type',
+				description:
+					'Creates a case-insensitively unique type and complete property definition. Text properties cannot have bounds; numeric bounds are inclusive and may be one-sided. Property IDs are assigned by the server.',
+				allowedRoles: ['producer'],
+				requestBody: typeDefinitionRequest(false),
+				responses: [
+					{
+						status: 201,
+						description: 'Inventory type created successfully.',
+						example: { type: inventoryTypeExample() }
+					},
+					structuredError(
+						400,
+						'The type definition is invalid.',
+						'INVALID_PROPERTY_BOUNDS',
+						'properties[0]'
+					),
+					structuredError(
+						409,
+						'A case-insensitively equivalent type name already exists.',
+						'DUPLICATE_TYPE_NAME',
+						'name'
+					),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST'),
+					structuredError(403, 'Token does not have producer role.', 'INVALID_REQUEST')
+				],
+				curlExample: typeCreateCurlExample(),
+				javascriptExample: typeCreateJavascriptExample()
+			},
+			{
+				id: 'get-type',
+				method: 'GET',
+				path: '/api/types/{id}',
+				title: 'Get Inventory Type',
+				description: 'Returns one inventory type and its complete property definition.',
+				allowedRoles: ['producer', 'consumer'],
+				parameters: [pathIdParameter('Inventory type UUID to read.')],
+				responses: [
+					{
+						status: 200,
+						description: 'Inventory type retrieved successfully.',
+						example: { type: inventoryTypeExample() }
+					},
+					structuredError(404, 'Inventory type was not found.', 'TYPE_NOT_FOUND'),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/types/type-uuid"`,
+				javascriptExample: `const { type } = await (await fetch('/api/types/type-uuid', { headers: { 'x-api-token': token } })).json();`
+			},
+			{
+				id: 'replace-type',
+				method: 'PUT',
+				path: '/api/types/{id}',
+				title: 'Replace Inventory Type',
+				description:
+					'Atomically replaces the type name and complete property definition. updatedAt is the required optimistic-concurrency precondition. Retained properties include their stable IDs and cannot change name or kind; omission deletes a property and an entry without an ID creates one. Existing parts are not rewritten or rejected and may become grandfathered.',
+				allowedRoles: ['producer'],
+				parameters: [pathIdParameter('Inventory type UUID to replace.')],
+				requestBody: typeDefinitionRequest(true),
+				responses: [
+					{
+						status: 200,
+						description: 'Inventory type replaced successfully.',
+						example: { type: inventoryTypeExample() }
+					},
+					structuredError(
+						400,
+						'The complete replacement definition is invalid.',
+						'INVALID_REQUEST',
+						'properties'
+					),
+					structuredError(
+						404,
+						'The type or retained property ID was not found.',
+						'PROPERTY_NOT_FOUND',
+						'properties'
+					),
+					structuredError(
+						409,
+						'The type changed after it was read or an immutable property field changed.',
+						'TYPE_UPDATE_CONFLICT',
+						'updatedAt'
+					),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST'),
+					structuredError(403, 'Token does not have producer role.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -X PUT "https://example.com/api/types/type-uuid" -H "x-api-token: your-producer-token" -H "Content-Type: application/json" --data @type.json`,
+				javascriptExample: `await fetch('/api/types/type-uuid', { method: 'PUT', headers: { 'x-api-token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(definition) });`
+			},
+			{
+				id: 'delete-type',
+				method: 'DELETE',
+				path: '/api/types/{id}',
+				title: 'Delete Inventory Type',
+				description:
+					'Deletes an unreferenced type. Any active or archived part reference blocks deletion; archiving never releases the reference.',
+				allowedRoles: ['producer'],
+				parameters: [pathIdParameter('Inventory type UUID to delete.')],
+				responses: [
+					{
+						status: 204,
+						description: 'Inventory type deleted successfully.',
+						example: {}
+					},
+					structuredError(404, 'Inventory type was not found.', 'TYPE_NOT_FOUND'),
+					structuredError(409, 'Active or archived parts still reference the type.', 'TYPE_IN_USE'),
+					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST'),
+					structuredError(403, 'Token does not have producer role.', 'INVALID_REQUEST')
+				],
+				curlExample: `curl -X DELETE -H "x-api-token: your-producer-token" "https://example.com/api/types/type-uuid"`,
+				javascriptExample: `await fetch('/api/types/type-uuid', { method: 'DELETE', headers: { 'x-api-token': token } });`
 			},
 			{
 				id: 'post-transactions',
@@ -570,17 +980,23 @@ const data = await response.json();`
 					{
 						status: 400,
 						description: 'Invalid transaction payload or unknown part ID.',
-						example: { error: 'One or more transaction lines reference an unknown part.' }
+						example: {
+							error: 'One or more transaction lines reference an unknown part.',
+							code: 'INVALID_REQUEST'
+						}
 					},
 					{
 						status: 401,
 						description: 'Missing or invalid API token.',
-						example: { error: 'API token required.' }
+						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					},
 					{
 						status: 403,
 						description: 'Token does not have producer role.',
-						example: { error: 'This API token is not allowed to perform that action.' }
+						example: {
+							error: 'This API token is not allowed to perform that action.',
+							code: 'INVALID_REQUEST'
+						}
 					}
 				],
 				curlExample: `curl -X POST "https://example.com/api/transactions" \\
@@ -631,18 +1047,25 @@ export function getOpenApiSpec(): Record<string, unknown> {
 			schema: {
 				type: p.type === 'number' ? 'integer' : p.type,
 				...(p.default ? { default: p.default } : {})
-			}
+			},
+			...(p.examples ? { examples: p.examples } : {})
 		}));
 
 		const responses: Record<string, unknown> = {};
 		for (const r of ep.responses) {
+			const schema = responseSchema(ep.id, r.status);
 			responses[String(r.status)] = {
 				description: r.description,
-				content: {
-					'application/json': {
-						example: r.example
-					}
-				}
+				...(r.status === 204
+					? {}
+					: {
+							content: {
+								'application/json': {
+									...(schema ? { schema } : {}),
+									example: r.example
+								}
+							}
+						})
 			};
 		}
 
@@ -702,7 +1125,8 @@ export function getOpenApiSpec(): Record<string, unknown> {
 					scheme: 'bearer',
 					description: 'Pass your API token as a Bearer token in the Authorization header'
 				}
-			}
+			},
+			schemas: openApiSchemas()
 		}
 	};
 }
@@ -713,7 +1137,7 @@ function buildRequestBodySchema(ep: ApiEndpointDoc): Record<string, unknown> {
 	if (ep.id === 'post-parts') {
 		return {
 			type: 'object',
-			required: ['name', 'mfgPartNumber'],
+			required: ['name', 'mfgPartNumber', 'inventoryTypeId'],
 			properties: {
 				name: {
 					type: 'string',
@@ -727,10 +1151,70 @@ function buildRequestBodySchema(ep: ApiEndpointDoc): Record<string, unknown> {
 					type: 'string',
 					description: 'Optional part description (defaults to empty string).'
 				},
+				inventoryTypeId: {
+					type: 'string',
+					format: 'uuid',
+					description: 'Existing inventory type UUID used to validate metadata.'
+				},
 				metadata: {
 					type: 'object',
-					description: 'Optional free-form JSON object for custom attributes and properties.'
+					additionalProperties: true,
+					description:
+						'Optional metadata validated against the selected type; undefined extra keys remain permitted.'
 				}
+			}
+		};
+	}
+
+	if (ep.id === 'patch-part') {
+		return {
+			type: 'object',
+			required: ['updatedAt'],
+			properties: {
+				name: { type: 'string' },
+				mfgPartNumber: { type: 'string' },
+				description: { type: 'string' },
+				inventoryTypeId: { type: 'string', format: 'uuid' },
+				metadata: {
+					type: 'object',
+					additionalProperties: true,
+					description:
+						'When supplied, replaces the complete metadata object rather than deep merging it.'
+				},
+				updatedAt: {
+					type: 'string',
+					format: 'date-time',
+					description:
+						'Last observed part timestamp used as an optimistic-concurrency precondition.'
+				}
+			}
+		};
+	}
+
+	if (ep.id === 'create-type' || ep.id === 'replace-type') {
+		return {
+			type: 'object',
+			required:
+				ep.id === 'replace-type' ? ['name', 'properties', 'updatedAt'] : ['name', 'properties'],
+			properties: {
+				name: {
+					type: 'string',
+					description: 'Case-insensitively unique display name.'
+				},
+				properties: {
+					type: 'array',
+					items: { $ref: '#/components/schemas/InventoryTypePropertyInput' }
+				},
+				...(ep.id === 'replace-type'
+					? {
+							updatedAt: {
+								type: 'string',
+								format: 'date-time',
+								description:
+									'Last observed type timestamp used as an optimistic-concurrency precondition.'
+							}
+						}
+					: {})
 			}
 		};
 	}
@@ -796,5 +1280,343 @@ function buildRequestBodySchema(ep: ApiEndpointDoc): Record<string, unknown> {
 		type: 'object',
 		...(required.length > 0 ? { required } : {}),
 		properties
+	};
+}
+
+function metadataFilterExamples(): Record<string, { value: string }> {
+	return {
+		exact: { value: 'meta[property-id][exact]=Nylon' },
+		contains: { value: 'meta[property-id][contains]=nyl' },
+		minimum: { value: 'meta[property-id][min]=10' },
+		maximum: { value: 'meta[property-id][max]=20' }
+	};
+}
+
+function pathIdParameter(description: string): ApiParameterDoc {
+	return {
+		name: 'id',
+		in: 'path',
+		type: 'string',
+		required: true,
+		description
+	};
+}
+
+function structuredError(
+	status: number,
+	description: string,
+	code: string,
+	field?: string
+): ApiEndpointDoc['responses'][number] {
+	return {
+		status,
+		description,
+		example: { error: description, code, ...(field ? { field } : {}) }
+	};
+}
+
+function inventoryTypeExample(): Record<string, unknown> {
+	return {
+		id: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+		name: 'Belt',
+		normalizedName: 'belt',
+		createdAt: '2026-08-14T12:00:00.000Z',
+		updatedAt: '2026-08-14T12:00:00.000Z',
+		properties: [
+			{
+				id: '4cf9691e-d690-4efc-b3b6-1784f63e6209',
+				inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+				name: 'Material',
+				normalizedName: 'material',
+				kind: 'text',
+				required: true,
+				minimum: null,
+				maximum: null,
+				createdAt: '2026-08-14T12:00:00.000Z',
+				updatedAt: '2026-08-14T12:00:00.000Z'
+			},
+			{
+				id: '6ffbb065-141b-46d6-b64e-b506b44552be',
+				inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+				name: 'Width',
+				normalizedName: 'width',
+				kind: 'numeric',
+				required: false,
+				minimum: 1,
+				maximum: 100,
+				createdAt: '2026-08-14T12:00:00.000Z',
+				updatedAt: '2026-08-14T12:00:00.000Z'
+			}
+		]
+	};
+}
+
+function inventoryPartExample(): Record<string, unknown> {
+	return {
+		id: 'c1f7b8e2-4a5d-4e2b-9f1a-8c3d7e5f2b0a',
+		name: 'Timing Belt',
+		mfgPartNumber: 'BELT-NYLON-12',
+		description: '12mm nylon timing belt',
+		metadata: { Material: 'Nylon', Width: 12 },
+		inventoryTypeId: '4d79bf21-22ef-44d9-905c-60f2370f74d7',
+		inventoryTypeName: 'Belt',
+		quantity: 0,
+		archivedAt: null,
+		updatedAt: '2026-08-14T12:00:00.000Z'
+	};
+}
+
+function typeDefinitionRequest(replacement: boolean): NonNullable<ApiEndpointDoc['requestBody']> {
+	return {
+		description: replacement
+			? 'Complete replacement definition including stable IDs for retained properties and the last observed updatedAt.'
+			: 'Complete initial type and property definition. Property IDs are generated by the server.',
+		contentType: 'application/json',
+		fields: [
+			{
+				name: 'name',
+				type: 'string',
+				required: true,
+				description: 'Case-insensitively unique type name.'
+			},
+			{
+				name: 'properties',
+				type: 'array',
+				required: true,
+				description:
+					'Complete property array. Each entry has optional stable id on replacement, name, text or numeric kind, required boolean, and optional one-sided numeric minimum/maximum.'
+			},
+			...(replacement
+				? [
+						{
+							name: 'updatedAt',
+							type: 'string',
+							required: true,
+							description: 'ISO-8601 timestamp last read by the client.'
+						}
+					]
+				: [])
+		],
+		example: {
+			name: 'Belt',
+			properties: [
+				{
+					...(replacement ? { id: '4cf9691e-d690-4efc-b3b6-1784f63e6209' } : {}),
+					name: 'Material',
+					kind: 'text',
+					required: true
+				},
+				{
+					name: 'Width',
+					kind: 'numeric',
+					required: false,
+					minimum: 1,
+					maximum: 100
+				}
+			],
+			...(replacement ? { updatedAt: '2026-08-14T12:00:00.000Z' } : {})
+		}
+	};
+}
+
+function typeCreateCurlExample(): string {
+	return `curl -X POST "https://example.com/api/types" \\
+  -H "x-api-token: your-producer-token" -H "Content-Type: application/json" \\
+  -d '{"name":"Belt","properties":[{"name":"Material","kind":"text","required":true},{"name":"Width","kind":"numeric","required":false,"minimum":1}]}'`;
+}
+
+function typeCreateJavascriptExample(): string {
+	return `await fetch('/api/types', {
+  method: 'POST',
+  headers: { 'x-api-token': token, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ name: 'Belt', properties: [{ name: 'Material', kind: 'text', required: true }] })
+});`;
+}
+
+function responseSchema(operationId: string, status: number): Record<string, unknown> | undefined {
+	if (status >= 400) return { $ref: '#/components/schemas/StructuredError' };
+	if (operationId === 'get-inventory') {
+		return objectEnvelope('inventory', {
+			type: 'array',
+			items: { $ref: '#/components/schemas/InventoryPart' }
+		});
+	}
+	if (operationId === 'get-search') {
+		return objectEnvelope('results', {
+			type: 'array',
+			items: { $ref: '#/components/schemas/InventoryPart' }
+		});
+	}
+	if (operationId === 'get-inventory-facets') {
+		return objectEnvelope('facets', {
+			type: 'array',
+			items: { $ref: '#/components/schemas/InventoryFacet' }
+		});
+	}
+	if (operationId === 'list-types') {
+		return objectEnvelope('types', {
+			type: 'array',
+			items: { $ref: '#/components/schemas/InventoryType' }
+		});
+	}
+	if (['create-type', 'get-type', 'replace-type'].includes(operationId)) {
+		return objectEnvelope('type', {
+			$ref: '#/components/schemas/InventoryType'
+		});
+	}
+	if (['post-parts', 'put-parts', 'patch-part'].includes(operationId)) {
+		return objectEnvelope('part', {
+			$ref: '#/components/schemas/InventoryPart'
+		});
+	}
+	return undefined;
+}
+
+function objectEnvelope(name: string, schema: Record<string, unknown>): Record<string, unknown> {
+	return { type: 'object', required: [name], properties: { [name]: schema } };
+}
+
+function openApiSchemas(): Record<string, unknown> {
+	const timestamp = { type: 'string', format: 'date-time' };
+	return {
+		StructuredError: {
+			type: 'object',
+			required: ['error', 'code'],
+			properties: {
+				error: { type: 'string', description: 'Human-readable error message.' },
+				code: {
+					type: 'string',
+					description: 'Stable machine-readable error code.'
+				},
+				field: {
+					type: 'string',
+					description: 'Request field or query path associated with the error.'
+				}
+			}
+		},
+		InventoryTypePropertyInput: {
+			type: 'object',
+			required: ['name', 'kind', 'required'],
+			properties: {
+				id: {
+					type: 'string',
+					format: 'uuid',
+					description: 'Stable ID required only when retaining a property during replacement.'
+				},
+				name: { type: 'string' },
+				kind: { type: 'string', enum: ['text', 'numeric'] },
+				required: { type: 'boolean' },
+				minimum: {
+					type: ['number', 'null'],
+					description: 'Inclusive numeric lower bound; may be used without maximum.'
+				},
+				maximum: {
+					type: ['number', 'null'],
+					description: 'Inclusive numeric upper bound; may be used without minimum.'
+				}
+			}
+		},
+		InventoryTypeProperty: {
+			type: 'object',
+			required: [
+				'id',
+				'inventoryTypeId',
+				'name',
+				'normalizedName',
+				'kind',
+				'required',
+				'minimum',
+				'maximum',
+				'createdAt',
+				'updatedAt'
+			],
+			properties: {
+				id: {
+					type: 'string',
+					format: 'uuid',
+					description:
+						'Stable property ID used in replacement payloads and metadata filter brackets.'
+				},
+				inventoryTypeId: { type: 'string', format: 'uuid' },
+				name: {
+					type: 'string',
+					description: 'Canonical metadata key spelling.'
+				},
+				normalizedName: { type: 'string', readOnly: true },
+				kind: { type: 'string', enum: ['text', 'numeric'] },
+				required: { type: 'boolean' },
+				minimum: { type: ['number', 'null'] },
+				maximum: { type: ['number', 'null'] },
+				createdAt: timestamp,
+				updatedAt: timestamp
+			}
+		},
+		InventoryType: {
+			type: 'object',
+			required: ['id', 'name', 'normalizedName', 'createdAt', 'updatedAt', 'properties'],
+			properties: {
+				id: { type: 'string', format: 'uuid' },
+				name: { type: 'string' },
+				normalizedName: { type: 'string', readOnly: true },
+				createdAt: timestamp,
+				updatedAt: timestamp,
+				properties: {
+					type: 'array',
+					items: { $ref: '#/components/schemas/InventoryTypeProperty' }
+				}
+			}
+		},
+		InventoryPart: {
+			type: 'object',
+			required: [
+				'id',
+				'name',
+				'mfgPartNumber',
+				'description',
+				'metadata',
+				'inventoryTypeId',
+				'inventoryTypeName',
+				'quantity',
+				'archivedAt',
+				'updatedAt'
+			],
+			properties: {
+				id: { type: 'string', format: 'uuid' },
+				name: { type: 'string' },
+				mfgPartNumber: { type: 'string' },
+				description: { type: 'string' },
+				metadata: { type: 'object', additionalProperties: true },
+				inventoryTypeId: {
+					type: ['string', 'null'],
+					format: 'uuid',
+					description: 'Null only for migrated legacy parts.'
+				},
+				inventoryTypeName: {
+					type: ['string', 'null'],
+					description: 'Null only for migrated legacy parts.'
+				},
+				quantity: { type: 'integer' },
+				archivedAt: { type: ['string', 'null'], format: 'date-time' },
+				updatedAt: timestamp
+			}
+		},
+		InventoryFacet: {
+			type: 'object',
+			required: ['propertyId', 'values'],
+			properties: {
+				propertyId: { type: 'string', format: 'uuid' },
+				values: {
+					type: 'array',
+					items: {
+						type: 'object',
+						required: ['value', 'count'],
+						properties: {
+							value: { type: 'string' },
+							count: { type: 'integer' }
+						}
+					}
+				}
+			}
+		}
 	};
 }
