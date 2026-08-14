@@ -1,7 +1,9 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { apiKeys, inventoryChanges, inventoryTypes, parts } from '$lib/server/db/schema';
+import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
 import { InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+import { getInventoryType, type InventoryTypeDefinition } from './inventory-types';
+import type { InventoryQuery, MetadataFilter } from './inventory-filters';
 import type { InventoryPart } from './parts';
 
 export { handleInventoryError, InventoryRouteError, isMissingSchemaError } from './inventory-errors';
@@ -48,6 +50,8 @@ export interface ListInventoryOptions {
 	mfgPartNumber?: string[];
 	id?: string[];
 	showArchived?: boolean;
+	typeId?: string;
+	metadataFilters?: MetadataFilter[];
 }
 
 type TokenEnv = object;
@@ -398,73 +402,14 @@ export async function listInventory(
 	d1: D1Database,
 	options: ListInventoryOptions = {}
 ): Promise<InventoryPart[]> {
-	if (options.query) {
-		let results = await searchInventory(d1, options.query, options.showArchived);
-		if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
-			results = results.filter((p) => options.mfgPartNumber!.includes(p.mfgPartNumber));
-		}
-		if (options.id && options.id.length > 0) {
-			results = results.filter((p) => options.id!.includes(p.id));
-		}
-		return results;
-	}
-
-	const db = getDb(d1);
-	const quantityExpression = sql<number>`coalesce(sum(${inventoryChanges.quantityDelta}), 0)`;
-
-	const conditions = [];
-	if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
-		conditions.push(inArray(parts.mfgPartNumber, options.mfgPartNumber));
-	}
-	if (options.id && options.id.length > 0) {
-		conditions.push(inArray(parts.id, options.id));
-	}
-	if (!options.showArchived) {
-		conditions.push(isNull(parts.archivedAt));
-	}
-
-	let queryBuilder = db
-		.select({
-			id: parts.id,
-			name: parts.name,
-			mfgPartNumber: parts.mfgPartNumber,
-			description: parts.description,
-			metadata: parts.metadata,
-			inventoryTypeId: parts.inventoryTypeId,
-			inventoryTypeName: inventoryTypes.name,
-			archivedAt: parts.archivedAt,
-			updatedAt: parts.updatedAt,
-			quantity: quantityExpression
-		})
-		.from(parts)
-		.leftJoin(inventoryTypes, eq(parts.inventoryTypeId, inventoryTypes.id))
-		.leftJoin(inventoryChanges, eq(parts.id, inventoryChanges.partId));
-
-	if (conditions.length > 0) {
-		const whereCondition = conditions.length === 1 ? conditions[0] : and(...conditions);
-		queryBuilder = queryBuilder.where(whereCondition) as typeof queryBuilder;
-	}
-
-	const rows = await queryBuilder
-		.groupBy(
-			parts.id,
-			parts.name,
-			parts.mfgPartNumber,
-			parts.description,
-			parts.metadata,
-			parts.inventoryTypeId,
-			inventoryTypes.name,
-			parts.archivedAt,
-			parts.updatedAt
-		)
-		.orderBy(asc(parts.name));
-
-	return rows.map((row) => ({
-		...row,
-		archivedAt: row.archivedAt ?? null,
-		metadata: row.metadata ?? {},
-		quantity: Number(row.quantity)
-	}));
+	return listFilteredInventory(d1, {
+		...(options.query ? { query: options.query } : {}),
+		...(options.mfgPartNumber ? { mfgPartNumber: options.mfgPartNumber } : {}),
+		...(options.id ? { id: options.id } : {}),
+		showArchived: options.showArchived ?? false,
+		...(options.typeId ? { typeId: options.typeId } : {}),
+		metadataFilters: options.metadataFilters ?? []
+	});
 }
 
 export async function searchInventory(
@@ -472,33 +417,71 @@ export async function searchInventory(
 	query: string,
 	showArchived = false
 ): Promise<InventoryPart[]> {
-	const statement = d1
-		.prepare(
-			`
-				SELECT
-					p.id,
-					p.name,
-					p.mfg_part_number,
-					p.description,
-					p.metadata,
-					p.inventory_type_id,
-					it.name AS inventory_type_name,
-					p.archived_at,
-					p.updated_at,
-					COALESCE(SUM(ic.quantity_delta), 0) AS quantity
-				FROM parts_fts
-				JOIN parts p ON p.rowid = parts_fts.rowid
-				LEFT JOIN inventory_types it ON it.id = p.inventory_type_id
-				LEFT JOIN inventory_changes ic ON ic.part_id = p.id
-				WHERE parts_fts MATCH ?
-				${showArchived ? '' : 'AND p.archived_at IS NULL'}
-				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata,
-					p.inventory_type_id, it.name, p.archived_at, p.updated_at
-				ORDER BY p.name ASC
-			`
-		)
-		.bind(buildFtsQuery(query));
+	return listFilteredInventory(d1, {
+		query,
+		showArchived,
+		metadataFilters: []
+	});
+}
 
+export async function listFilteredInventory(
+	d1: D1Database,
+	query: InventoryQuery
+): Promise<InventoryPart[]> {
+	const inventoryType = await loadFilterInventoryType(d1, query);
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	const usesFullTextSearch = Boolean(query.query);
+
+	if (query.query) {
+		conditions.push('parts_fts MATCH ?');
+		params.push(buildFtsQuery(query.query));
+	}
+	appendListCondition(conditions, params, 'p.mfg_part_number', query.mfgPartNumber);
+	appendListCondition(conditions, params, 'p.id', query.id);
+	if (!query.showArchived) conditions.push('p.archived_at IS NULL');
+	if (query.typeId) {
+		conditions.push('p.inventory_type_id = ?');
+		params.push(query.typeId);
+	}
+
+	if (query.metadataFilters.length > 0 && !inventoryType) {
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'typeId is required when filtering metadata.',
+			400,
+			'typeId'
+		);
+	}
+	for (const filter of query.metadataFilters) {
+		appendMetadataCondition(conditions, params, filter, inventoryType!);
+	}
+
+	const source = usesFullTextSearch
+		? 'parts_fts JOIN parts p ON p.rowid = parts_fts.rowid'
+		: 'parts p';
+	const statementSql = `
+		SELECT
+			p.id,
+			p.name,
+			p.mfg_part_number,
+			p.description,
+			p.metadata,
+			p.inventory_type_id,
+			it.name AS inventory_type_name,
+			p.archived_at,
+			p.updated_at,
+			COALESCE(SUM(ic.quantity_delta), 0) AS quantity
+		FROM ${source}
+		LEFT JOIN inventory_types it ON it.id = p.inventory_type_id
+		LEFT JOIN inventory_changes ic ON ic.part_id = p.id
+		${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+		GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata,
+			p.inventory_type_id, it.name, p.archived_at, p.updated_at
+		ORDER BY p.name ASC
+	`;
+	const prepared = d1.prepare(statementSql);
+	const statement = params.length > 0 ? prepared.bind(...params) : prepared;
 	const result = await statement.all<PartSearchRow>();
 
 	return (result.results ?? []).map((row) => ({
@@ -513,6 +496,92 @@ export async function searchInventory(
 		updatedAt: row.updated_at,
 		quantity: Number(row.quantity ?? 0)
 	}));
+}
+
+async function loadFilterInventoryType(
+	d1: D1Database,
+	query: InventoryQuery
+): Promise<InventoryTypeDefinition | null> {
+	if (!query.typeId) return null;
+	const inventoryType = await getInventoryType(d1, query.typeId);
+	if (!inventoryType) {
+		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+	}
+	return inventoryType;
+}
+
+function appendListCondition(
+	conditions: string[],
+	params: unknown[],
+	column: 'p.mfg_part_number' | 'p.id',
+	values: string[] | undefined
+): void {
+	if (!values || values.length === 0) return;
+	conditions.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+	params.push(...values);
+}
+
+function appendMetadataCondition(
+	conditions: string[],
+	params: unknown[],
+	filter: MetadataFilter,
+	inventoryType: InventoryTypeDefinition
+): void {
+	const property = inventoryType.properties.find((candidate) => candidate.id === filter.propertyId);
+	if (!property) {
+		throw new InventoryRouteError(
+			'PROPERTY_NOT_FOUND',
+			'The metadata filter property does not belong to the selected inventory type.',
+			404,
+			`meta[${filter.propertyId}]`
+		);
+	}
+
+	const path = jsonPropertyPath(property.name);
+	if (property.kind === 'text') {
+		if ((filter.operator !== 'exact' && filter.operator !== 'contains') || typeof filter.value !== 'string') {
+			throw invalidMetadataFilter(filter);
+		}
+		if (filter.operator === 'exact') {
+			conditions.push(
+				"(json_type(p.metadata, ?) = 'text' AND json_extract(p.metadata, ?) COLLATE NOCASE = ? COLLATE NOCASE)"
+			);
+			params.push(path, path, filter.value);
+			return;
+		}
+
+		conditions.push(
+			"(json_type(p.metadata, ?) = 'text' AND (json_extract(p.metadata, ?) COLLATE NOCASE) LIKE ('%' || ? || '%'))"
+		);
+		params.push(path, path, filter.value);
+		return;
+	}
+
+	if (
+		!['exact', 'min', 'max'].includes(filter.operator) ||
+		typeof filter.value !== 'number' ||
+		!Number.isFinite(filter.value)
+	) {
+		throw invalidMetadataFilter(filter);
+	}
+	const comparison = filter.operator === 'exact' ? '=' : filter.operator === 'min' ? '>=' : '<=';
+	conditions.push(
+		`(json_type(p.metadata, ?) IN ('integer', 'real') AND json_extract(p.metadata, ?) ${comparison} ?)`
+	);
+	params.push(path, path, filter.value);
+}
+
+function jsonPropertyPath(propertyName: string): string {
+	return `$.${JSON.stringify(propertyName)}`;
+}
+
+function invalidMetadataFilter(filter: MetadataFilter): InventoryRouteError {
+	return new InventoryRouteError(
+		'INVALID_REQUEST',
+		'The metadata filter operator or value does not match its property kind.',
+		400,
+		`meta[${filter.propertyId}][${filter.operator}]`
+	);
 }
 
 export async function listHistory(

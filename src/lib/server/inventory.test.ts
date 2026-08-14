@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { Miniflare } from 'miniflare';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
 	buildFtsQuery,
 	createApiKey,
@@ -10,8 +12,10 @@ import {
 	normalizePartArchiveInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
-	requireApiRole
+	requireApiRole,
+	listFilteredInventory
 } from './inventory';
+import { parseInventoryQuery, type FilterProperty } from './inventory-filters';
 
 type StoredApiKey = {
 	keyHash: string;
@@ -320,5 +324,266 @@ describe('inventory helpers', () => {
 
 	it('builds a prefix FTS query for part search', () => {
 		expect(buildFtsQuery('timing belt 9mm')).toBe('timing* AND belt* AND 9mm*');
+	});
+});
+
+describe('listFilteredInventory with local D1', () => {
+	let miniflare: Miniflare;
+	let d1: D1Database;
+
+	const beltProperties: FilterProperty[] = [
+		{ id: 'property-material', name: 'Material', kind: 'text' },
+		{ id: 'property-color', name: 'Color', kind: 'text' },
+		{ id: 'property-width', name: 'Width', kind: 'numeric' },
+		{ id: 'property-teeth', name: 'Teeth', kind: 'numeric' }
+	];
+
+	function query(search = '') {
+		return parseInventoryQuery(
+			new URL(`https://example.test/api/inventory${search ? `?${search}` : ''}`),
+			beltProperties
+		);
+	}
+
+	async function ids(search = '') {
+		return (await listFilteredInventory(d1, query(search))).map((part) => part.id);
+	}
+
+	beforeAll(async () => {
+		miniflare = new Miniflare({
+			modules: true,
+			script: 'export default { fetch() { return new Response("ok") } }',
+			d1Databases: { DB: 'inventory-filter-test' }
+		});
+		d1 = (await miniflare.getD1Database('DB')) as unknown as D1Database;
+
+		for (const migration of [
+			'drizzle/0000_tired_natasha_romanoff.sql',
+			'drizzle/0001_api_keys.sql',
+			'drizzle/0002_archived_parts.sql',
+			'drizzle/0003_inventory_types.sql'
+		]) {
+			for (const statement of (await readFile(migration, 'utf8')).split('--> statement-breakpoint')) {
+				if (statement.trim()) await d1.prepare(statement).run();
+			}
+		}
+
+		const timestamp = '2026-08-14T12:00:00.000Z';
+		await d1.batch([
+			d1
+				.prepare(
+					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+				)
+				.bind('type-belt', 'Belt', 'belt', timestamp, timestamp),
+			d1
+				.prepare(
+					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+				)
+				.bind('type-bearing', 'Bearing', 'bearing', timestamp, timestamp),
+			...beltProperties.map((property) =>
+				d1
+					.prepare(
+						'INSERT INTO inventory_type_properties (id, inventory_type_id, name, normalized_name, kind, required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+					)
+					.bind(
+						property.id,
+						'type-belt',
+						property.name,
+						property.name.toLowerCase(),
+						property.kind,
+						0,
+						timestamp,
+						timestamp
+					)
+			),
+			d1
+				.prepare(
+					'INSERT INTO inventory_type_properties (id, inventory_type_id, name, normalized_name, kind, required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+				)
+				.bind(
+					'property-bearing-material',
+					'type-bearing',
+					'Material',
+					'material',
+					'text',
+					0,
+					timestamp,
+					timestamp
+				)
+		]);
+
+		const parts = [
+			['part-legacy', 'Legacy Timing Belt', 'LEGACY-1', 'old stock', {}, null, null],
+			[
+				'part-nylon',
+				'Timing Belt Alpha',
+				'BELT-NYLON',
+				'10mm drive belt',
+				{ Material: 'NYLON', Color: 'Black', Width: 10, Teeth: 120 },
+				'type-belt',
+				null
+			],
+			[
+				'part-rubber',
+				'Timing Belt Beta',
+				'BELT-RUBBER',
+				'12.5mm drive belt',
+				{ Material: 'Rubber', Color: 'black', Width: 12.5, Teeth: 80 },
+				'type-belt',
+				null
+			],
+			[
+				'part-missing-width',
+				'Spare Strap',
+				'BELT-SPARE',
+				'optional width absent',
+				{ Material: 'Nylon', Color: 'Red' },
+				'type-belt',
+				null
+			],
+			[
+				'part-string-width',
+				'Imported Belt',
+				'BELT-STRING',
+				'grandfathered malformed numeric metadata',
+				{ Material: 'Nylon', Width: '10' },
+				'type-belt',
+				null
+			],
+			[
+				'part-archived',
+				'Archived Timing Belt',
+				'BELT-ARCHIVED',
+				'archived stock',
+				{ Material: 'Nylon', Width: 20 },
+				'type-belt',
+				'2026-08-14T13:00:00.000Z'
+			],
+			[
+				'part-bearing',
+				'Timing Bearing',
+				'BEARING-1',
+				'other type',
+				{ Material: 'Nylon' },
+				'type-bearing',
+				null
+			]
+		] as const;
+
+		await d1.batch(
+			parts.map(([id, name, mfgPartNumber, description, metadata, typeId, archivedAt]) =>
+				d1
+					.prepare(
+						'INSERT INTO parts (id, name, mfg_part_number, description, metadata, inventory_type_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+					)
+					.bind(
+						id,
+						name,
+						mfgPartNumber,
+						description,
+						JSON.stringify(metadata),
+						typeId,
+						archivedAt,
+						timestamp,
+						timestamp
+					)
+			)
+		);
+		await d1.batch([
+			d1
+				.prepare(
+					'INSERT INTO inventory_changes (id, transaction_id, part_id, quantity_delta, actor, recorded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+				)
+				.bind('change-1', 'transaction-1', 'part-nylon', 5, 'seed', timestamp, timestamp),
+			d1
+				.prepare(
+					'INSERT INTO inventory_changes (id, transaction_id, part_id, quantity_delta, actor, recorded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+				)
+				.bind('change-2', 'transaction-2', 'part-nylon', -2, 'seed', timestamp, timestamp)
+		]);
+	});
+
+	afterAll(async () => {
+		await miniflare.dispose();
+	});
+
+	it('preserves legacy visibility by default and limits a selected type to active rows of that type', async () => {
+		expect(await ids()).toEqual([
+			'part-string-width',
+			'part-legacy',
+			'part-missing-width',
+			'part-bearing',
+			'part-nylon',
+			'part-rubber'
+		]);
+		expect(await ids('typeId=type-belt')).toEqual([
+			'part-string-width',
+			'part-missing-width',
+			'part-nylon',
+			'part-rubber'
+		]);
+	});
+
+	it('matches text exact and contains filters without regard to case', async () => {
+		expect(await ids('typeId=type-belt&meta[property-material][exact]=nylon')).toEqual([
+			'part-string-width',
+			'part-missing-width',
+			'part-nylon'
+		]);
+		expect(await ids('typeId=type-belt&meta[property-material][contains]=Yl')).toEqual([
+			'part-string-width',
+			'part-missing-width',
+			'part-nylon'
+		]);
+	});
+
+	it('matches numeric equality and inclusive integer or decimal bounds while excluding missing and non-numeric JSON values', async () => {
+		expect(await ids('typeId=type-belt&meta[property-width][exact]=10')).toEqual(['part-nylon']);
+		expect(await ids('typeId=type-belt&meta[property-width][min]=10')).toEqual([
+			'part-nylon',
+			'part-rubber'
+		]);
+		expect(await ids('typeId=type-belt&meta[property-width][max]=12.5')).toEqual([
+			'part-nylon',
+			'part-rubber'
+		]);
+		expect(
+			await ids(
+				'typeId=type-belt&meta[property-width][min]=10&meta[property-width][max]=12.5'
+			)
+		).toEqual(['part-nylon', 'part-rubber']);
+	});
+
+	it('combines metadata filters with AND and preserves quantity aggregation', async () => {
+		const result = await listFilteredInventory(
+			d1,
+			query(
+				'typeId=type-belt&meta[property-material][exact]=nylon&meta[property-width][min]=10'
+			)
+		);
+
+		expect(result.map((part) => ({ id: part.id, quantity: part.quantity }))).toEqual([
+			{ id: 'part-nylon', quantity: 3 }
+		]);
+	});
+
+	it('composes type and metadata filters with full-text search and exact inventory filters', async () => {
+		expect(
+			await ids(
+				'typeId=type-belt&q=timing&meta[property-material][exact]=nylon&mfgPartNumber=BELT-NYLON,BELT-RUBBER'
+			)
+		).toEqual(['part-nylon']);
+		expect(await ids('typeId=type-belt&id=part-rubber')).toEqual(['part-rubber']);
+	});
+
+	it('includes archived matches only when archive visibility is enabled', async () => {
+		expect(
+			await ids('typeId=type-belt&showArchived=true&meta[property-material][exact]=nylon')
+		).toEqual([
+			'part-archived',
+			'part-string-width',
+			'part-missing-width',
+			'part-nylon'
+		]);
 	});
 });
