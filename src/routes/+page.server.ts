@@ -7,9 +7,16 @@ import {
 	getSearchQuery,
 	isMissingSchemaError,
 	listHistory,
-	listInventory,
+	listFilteredInventory,
 	setPartArchivedStateById
 } from '$lib/server/inventory';
+import { listInventoryTypes, type InventoryTypeDefinition } from '$lib/server/inventory-types';
+import {
+	getInventoryTypeId,
+	listInventoryFacets,
+	parseInventoryQuery,
+	type InventoryQuery
+} from '$lib/server/inventory-filters';
 
 const adminSessionCookie = 'admin_session';
 
@@ -21,31 +28,58 @@ async function hasAdminSession(
 }
 
 export const load: PageServerLoad = async ({ platform, url }) => {
+	const query = getSearchQuery(url);
+	const showArchived = getBooleanQueryParam(url, 'showArchived');
+	const fallbackFilters: InventoryQuery = {
+		...(query ? { query } : {}),
+		showArchived,
+		metadataFilters: []
+	};
+
 	if (!platform?.env?.DB) {
 		return {
 			databaseConfigured: false,
 			databaseReady: false,
 			databaseMessage: 'Add your Cloudflare D1 binding to start using the inventory service.',
-			query: getSearchQuery(url) ?? '',
-			showArchived: getBooleanQueryParam(url, 'showArchived'),
+			query: query ?? '',
+			showArchived,
+			inventoryTypes: [],
+			selectedType: null,
+			filters: fallbackFilters,
+			facets: [],
 			parts: [],
 			history: []
 		};
 	}
 
 	const d1 = getBoundDb(platform);
-	const query = getSearchQuery(url);
-	const showArchived = getBooleanQueryParam(url, 'showArchived');
+	let inventoryTypes: InventoryTypeDefinition[] = [];
+	let selectedType: InventoryTypeDefinition | null = null;
+	let filters = fallbackFilters;
 
 	try {
+		inventoryTypes = await listInventoryTypes(d1);
+		const selectedTypeId = getInventoryTypeId(url);
+		selectedType = inventoryTypes.find((inventoryType) => inventoryType.id === selectedTypeId) ?? null;
+		filters = parseInventoryQuery(url, selectedType?.properties);
+		const [parts, history, facets] = await Promise.all([
+			listFilteredInventory(d1, filters),
+			listHistory(d1, { limit: 100 }),
+			selectedType ? listInventoryFacets(d1, filters) : Promise.resolve([])
+		]);
+
 		return {
 			databaseConfigured: true,
 			databaseReady: true,
 			databaseMessage: '',
 			query: query ?? '',
 			showArchived,
-			parts: await listInventory(d1, { query, showArchived }),
-			history: await listHistory(d1, { limit: 100 })
+			inventoryTypes,
+			selectedType,
+			filters,
+			facets,
+			parts,
+			history
 		};
 	} catch (cause) {
 		return {
@@ -56,6 +90,10 @@ export const load: PageServerLoad = async ({ platform, url }) => {
 				: 'The inventory data could not be loaded. Verify your D1 binding, schema, and local database state.',
 			query: query ?? '',
 			showArchived,
+			inventoryTypes,
+			selectedType,
+			filters,
+			facets: [],
 			parts: [],
 			history: []
 		};
