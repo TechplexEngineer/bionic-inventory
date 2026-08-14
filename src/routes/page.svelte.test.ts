@@ -155,6 +155,28 @@ describe('read-only dashboard metadata filters', () => {
 		expect((material as HTMLInputElement).value).toBe('nyl');
 	});
 
+	it('resynchronizes text controls when same-route page data changes', async () => {
+		const { rerender } = renderPage(true);
+		const updatedData = {
+			...pageData(true),
+			filters: {
+				...pageData(true).filters,
+				metadataFilters: [
+					{ propertyId: 'property-material', operator: 'exact' as const, value: 'Rubber' }
+				]
+			}
+		};
+
+		await rerender({ data: updatedData, form: null } as never);
+
+		const matchMode = screen.getByRole('combobox', { name: 'Material match' });
+		const material = screen.getByRole('textbox', { name: 'Material value' });
+		if (!(matchMode instanceof HTMLSelectElement)) throw new TypeError('Expected a select element.');
+		expect(matchMode.value).toBe('exact');
+		expect(material.getAttribute('name')).toBe('meta[property-material][exact]');
+		expect((material as HTMLInputElement).value).toBe('Rubber');
+	});
+
 	it('omits empty metadata controls from the serialized GET request', async () => {
 		renderPage(true);
 		const submit = screen.getByRole('button', { name: 'Apply filters' });
@@ -170,6 +192,49 @@ describe('read-only dashboard metadata filters', () => {
 			typeId: 'type-belt',
 			showArchived: '1',
 			'meta[property-material][contains]': 'nyl',
+			'meta[property-width][min]': '5'
+		});
+	});
+
+	it('preserves raw type and metadata state when a definition is unavailable', async () => {
+		const errorData = {
+			...pageData(false),
+			databaseReady: false,
+			databaseMessage: 'The inventory data could not be loaded.',
+			query: 'drive',
+			showArchived: true,
+			inventoryTypes: [],
+			filters: {
+				query: 'drive',
+				mfgPartNumber: ['BELT-10'],
+				id: ['part-typed'],
+				showArchived: true,
+				typeId: 'type-belt',
+				metadataFilters: [
+					{ propertyId: 'property-material', operator: 'exact' as const, value: 'Nylon' },
+					{ propertyId: 'property-width', operator: 'min' as const, value: '5' }
+				]
+			}
+		};
+		render(Page, { data: errorData, form: null } as never);
+
+		const typeSelect = screen.getByRole('combobox', { name: 'Inventory type' });
+		const submit = screen.getByRole('button', { name: 'Apply filters' });
+		const filterForm = submit.closest('form');
+		if (!(typeSelect instanceof HTMLSelectElement)) throw new TypeError('Expected a select element.');
+		if (!filterForm) throw new TypeError('Expected the filter form.');
+		expect(typeSelect.value).toBe('type-belt');
+		expect(screen.queryByRole('group', { name: 'Material filters' })).toBeNull();
+
+		await fireEvent.submit(filterForm);
+
+		expect(Object.fromEntries(new FormData(filterForm))).toEqual({
+			q: 'drive',
+			mfgPartNumber: 'BELT-10',
+			id: 'part-typed',
+			typeId: 'type-belt',
+			showArchived: '1',
+			'meta[property-material][exact]': 'Nylon',
 			'meta[property-width][min]': '5'
 		});
 	});

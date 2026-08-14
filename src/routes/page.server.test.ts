@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const inventory = vi.hoisted(() => ({
+	getArrayQueryParam: vi.fn((url: URL, name: string) => {
+		const values = url.searchParams
+			.getAll(name)
+			.flatMap((value) => value.split(','))
+			.map((value) => value.trim())
+			.filter(Boolean);
+		return values.length > 0 ? [...new Set(values)] : undefined;
+	}),
 	getBooleanQueryParam: vi.fn(
 		(url: URL, name: string) => url.searchParams.get(name) === '1'
 	),
@@ -159,10 +167,12 @@ describe('dashboard server load', () => {
 		});
 	});
 
-	it('returns serializable empty filter state when the database binding is absent', async () => {
+	it('preserves complete raw URL filter state when the database binding is absent', async () => {
 		const result = await load({
 			platform: undefined,
-			url: new URL('https://example.test/?q=legacy&showArchived=1')
+			url: new URL(
+				'https://example.test/?q=legacy&mfgPartNumber=A,B&mfgPartNumber=C&id=part-1&typeId=type-belt&meta[property-material][exact]=Nylon&meta[property-width][min]=5&showArchived=1'
+			)
 		} as never);
 
 		expect(result).toMatchObject({
@@ -174,13 +184,49 @@ describe('dashboard server load', () => {
 			selectedType: null,
 			filters: {
 				query: 'legacy',
+				mfgPartNumber: ['A', 'B', 'C'],
+				id: ['part-1'],
 				showArchived: true,
-				metadataFilters: []
+				typeId: 'type-belt',
+				metadataFilters: [
+					{ propertyId: 'property-material', operator: 'exact', value: 'Nylon' },
+					{ propertyId: 'property-width', operator: 'min', value: '5' }
+				]
 			},
 			facets: [],
 			parts: [],
 			history: []
 		});
 		expect(inventoryTypes.listInventoryTypes).not.toHaveBeenCalled();
+	});
+
+	it('preserves complete raw URL filter state when listing types fails before parsing', async () => {
+		inventoryTypes.listInventoryTypes.mockRejectedValueOnce(new Error('D1 unavailable'));
+		const url =
+			'?q=drive&mfgPartNumber=BELT-10&id=part-1&typeId=type-belt&meta[property-material][contains]=nyl&showArchived=1';
+
+		const result = await load(event(url) as never);
+
+		expect(result).toMatchObject({
+			databaseConfigured: true,
+			databaseReady: false,
+			inventoryTypes: [],
+			selectedType: null,
+			filters: {
+				query: 'drive',
+				mfgPartNumber: ['BELT-10'],
+				id: ['part-1'],
+				showArchived: true,
+				typeId: 'type-belt',
+				metadataFilters: [
+					{ propertyId: 'property-material', operator: 'contains', value: 'nyl' }
+				]
+			},
+			facets: [],
+			parts: [],
+			history: []
+		});
+		expect(inventoryFilters.parseInventoryQuery).not.toHaveBeenCalled();
+		expect(inventory.listFilteredInventory).not.toHaveBeenCalled();
 	});
 });

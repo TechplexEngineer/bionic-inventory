@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { verifyAdminSession } from '$lib/server/admin-auth';
 import {
+	getArrayQueryParam,
 	getBooleanQueryParam,
 	getBoundDb,
 	getSearchQuery,
@@ -15,10 +16,37 @@ import {
 	getInventoryTypeId,
 	listInventoryFacets,
 	parseInventoryQuery,
-	type InventoryQuery
+	type InventoryQuery,
+	type MetadataFilterOperator
 } from '$lib/server/inventory-filters';
 
 const adminSessionCookie = 'admin_session';
+const rawMetadataFilterPattern = /^meta\[([^\[\]]+)\]\[(exact|contains|min|max)\]$/;
+
+function getRawInventoryQuery(url: URL, query: string | undefined, showArchived: boolean): InventoryQuery {
+	const metadataFilters: InventoryQuery['metadataFilters'] = [];
+	for (const [key, value] of url.searchParams) {
+		const match = rawMetadataFilterPattern.exec(key);
+		if (!match) continue;
+		metadataFilters.push({
+			propertyId: match[1],
+			operator: match[2] as MetadataFilterOperator,
+			value
+		});
+	}
+
+	const mfgPartNumber = getArrayQueryParam(url, 'mfgPartNumber');
+	const id = getArrayQueryParam(url, 'id');
+	const typeId = url.searchParams.get('typeId')?.trim();
+	return {
+		...(query ? { query } : {}),
+		...(mfgPartNumber ? { mfgPartNumber } : {}),
+		...(id ? { id } : {}),
+		showArchived,
+		...(typeId ? { typeId } : {}),
+		metadataFilters
+	};
+}
 
 async function hasAdminSession(
 	cookies: { get(name: string): string | undefined },
@@ -30,11 +58,7 @@ async function hasAdminSession(
 export const load: PageServerLoad = async ({ platform, url }) => {
 	const query = getSearchQuery(url);
 	const showArchived = getBooleanQueryParam(url, 'showArchived');
-	const fallbackFilters: InventoryQuery = {
-		...(query ? { query } : {}),
-		showArchived,
-		metadataFilters: []
-	};
+	const fallbackFilters = getRawInventoryQuery(url, query, showArchived);
 
 	if (!platform?.env?.DB) {
 		return {

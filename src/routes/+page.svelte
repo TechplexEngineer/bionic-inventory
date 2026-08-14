@@ -9,36 +9,41 @@
 		{ operator: 'max', label: 'maximum' }
 	] as const;
 
-	let textOperators = $state<Record<string, TextOperator>>(
-		untrack(() =>
-			Object.fromEntries(
-				(data.selectedType?.properties ?? [])
-					.filter((property) => property.kind === 'text')
-					.map((property) => {
-						const active = data.filters.metadataFilters.find(
-							(filter) => filter.propertyId === property.id
-						);
-						return [property.id, active?.operator === 'contains' ? 'contains' : 'exact'];
-					})
-			)
-		)
-	);
-	let textValues = $state<Record<string, string>>(
-		untrack(() =>
-			Object.fromEntries(
-				(data.selectedType?.properties ?? [])
-					.filter((property) => property.kind === 'text')
-					.map((property) => {
-						const active = data.filters.metadataFilters.find(
-							(filter) =>
-								filter.propertyId === property.id &&
-								(filter.operator === 'exact' || filter.operator === 'contains')
-						);
-						return [property.id, active === undefined ? '' : String(active.value)];
-					})
-			)
-		)
-	);
+	function incomingTextOperators(): Record<string, TextOperator> {
+		return Object.fromEntries(
+			(data.selectedType?.properties ?? [])
+				.filter((property) => property.kind === 'text')
+				.map((property) => {
+					const active = data.filters.metadataFilters.find(
+						(filter) => filter.propertyId === property.id
+					);
+					return [property.id, active?.operator === 'contains' ? 'contains' : 'exact'];
+				})
+		);
+	}
+
+	function incomingTextValues(): Record<string, string> {
+		return Object.fromEntries(
+			(data.selectedType?.properties ?? [])
+				.filter((property) => property.kind === 'text')
+				.map((property) => {
+					const active = data.filters.metadataFilters.find(
+						(filter) =>
+							filter.propertyId === property.id &&
+							(filter.operator === 'exact' || filter.operator === 'contains')
+					);
+					return [property.id, active === undefined ? '' : String(active.value)];
+				})
+		);
+	}
+
+	let textOperators = $state<Record<string, TextOperator>>(untrack(incomingTextOperators));
+	let textValues = $state<Record<string, string>>(untrack(incomingTextValues));
+
+	$effect.pre(() => {
+		textOperators = incomingTextOperators();
+		textValues = incomingTextValues();
+	});
 
 	function totalQuantity() {
 		return data.parts.reduce((sum, part) => sum + part.quantity, 0);
@@ -110,7 +115,11 @@
 		const typeSelect = filterForm.elements.namedItem('typeId');
 		const metadataInputs = filterForm.querySelectorAll<HTMLInputElement>('input[name^="meta["]');
 		for (const input of metadataInputs) {
-			if (!(typeSelect instanceof HTMLSelectElement) || !typeSelect.value || !input.value) {
+			if (
+				!(typeSelect instanceof HTMLSelectElement) ||
+				!typeSelect.value ||
+				(input.dataset.metadataControl === 'true' && !input.value)
+			) {
 				input.disabled = true;
 			}
 		}
@@ -146,6 +155,15 @@
 		{#each data.filters.id ?? [] as id}
 			<input type="hidden" name="id" value={id} />
 		{/each}
+		{#if !data.selectedType}
+			{#each data.filters.metadataFilters as filter}
+				<input
+					type="hidden"
+					name={`meta[${filter.propertyId}][${filter.operator}]`}
+					value={filter.value}
+				/>
+			{/each}
+		{/if}
 		<div class="row g-3 align-items-end">
 			<div class="col-lg-6">
 				<label class="form-label" for="inventory-search">Search inventory</label>
@@ -164,12 +182,15 @@
 					class="form-select"
 					id="inventory-type"
 					name="typeId"
-					value={data.selectedType?.id ?? ''}
+					value={data.filters.typeId ?? ''}
 				>
 					<option value="">All types</option>
 					{#each data.inventoryTypes as inventoryType}
 						<option value={inventoryType.id}>{inventoryType.name}</option>
 					{/each}
+					{#if data.filters.typeId && !data.inventoryTypes.some((inventoryType) => inventoryType.id === data.filters.typeId)}
+						<option value={data.filters.typeId}>Unavailable type ({data.filters.typeId})</option>
+					{/if}
 				</select>
 			</div>
 			<div class="col-md-6 col-lg-2">
@@ -222,6 +243,7 @@
 											type="text"
 											id={`metadata-value-${property.id}`}
 											name={`meta[${property.id}][${textOperators[property.id]}]`}
+											data-metadata-control="true"
 											bind:value={textValues[property.id]}
 										/>
 									</div>
@@ -248,6 +270,7 @@
 												step="any"
 												id={`metadata-${operator}-${property.id}`}
 												name={`meta[${property.id}][${operator}]`}
+												data-metadata-control="true"
 												value={filterValue(property.id, operator)}
 											/>
 										</div>
