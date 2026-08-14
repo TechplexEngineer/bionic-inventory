@@ -220,7 +220,7 @@ export function getApiDocumentation(): ApiDocumentation {
 						example: { error: 'API token required.', code: 'INVALID_REQUEST' }
 					}
 				],
-				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/inventory?typeId=type-uuid&meta[property-uuid][contains]=nyl"`,
+				curlExample: `curl --globoff -H "x-api-token: your-consumer-token" "https://example.com/api/inventory?typeId=type-uuid&meta[property-uuid][contains]=nyl"`,
 				javascriptExample: `const response = await fetch('/api/inventory', {
   headers: { 'x-api-token': 'your-consumer-token' }
 });
@@ -310,7 +310,7 @@ const data = await response.json();`
 					),
 					structuredError(401, 'Missing or invalid API token.', 'INVALID_REQUEST')
 				],
-				curlExample: `curl -H "x-api-token: your-consumer-token" "https://example.com/api/inventory/facets?typeId=type-uuid&meta[property-uuid][exact]=Nylon"`,
+				curlExample: `curl --globoff -H "x-api-token: your-consumer-token" "https://example.com/api/inventory/facets?typeId=type-uuid&meta[property-uuid][exact]=Nylon"`,
 				javascriptExample: `const response = await fetch('/api/inventory/facets?typeId=type-uuid', {
   headers: { 'x-api-token': 'your-consumer-token' }
 });

@@ -107,6 +107,17 @@ describe('API Documentation Endpoint with Scalar', () => {
 		}
 	});
 
+	it('disables curl URL globbing for every raw bracket-filter example', () => {
+		const bracketFilterExamples = getApiDocumentation().endpoints
+			.map((endpoint) => endpoint.curlExample)
+			.filter((example) => example.includes('meta['));
+
+		expect(bracketFilterExamples.length).toBeGreaterThan(0);
+		for (const example of bracketFilterExamples) {
+			expect(example).toMatch(/^curl --globoff\b/);
+		}
+	});
+
 	it('generates valid OpenAPI 3.1 spec object with request body schemas', () => {
 		const spec = getOpenApiSpec() as any;
 
