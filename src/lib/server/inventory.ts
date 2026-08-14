@@ -1,7 +1,9 @@
-import { json } from '@sveltejs/kit';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
+import { InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+
+export { handleInventoryError, InventoryRouteError, isMissingSchemaError } from './inventory-errors';
 
 export type ApiRole = 'producer' | 'consumer';
 
@@ -74,38 +76,9 @@ type PartSearchRow = {
 	quantity: number | string | null;
 };
 
-class InventoryRouteError extends Error {
-	constructor(
-		message: string,
-		public readonly status: number
-	) {
-		super(message);
-	}
-}
-
-export function handleInventoryError(cause: unknown): Response {
-	if (cause instanceof InventoryRouteError) {
-		return json({ error: cause.message }, { status: cause.status });
-	}
-
-	if (cause instanceof SyntaxError) {
-		return json({ error: 'Request body must be valid JSON.' }, { status: 400 });
-	}
-
-	if (isMissingSchemaError(cause)) {
-		return json(
-			{ error: 'The database schema has not been initialized. Run the D1 migration first.' },
-			{ status: 503 }
-		);
-	}
-
-	console.error(cause);
-	return json({ error: 'Internal server error.' }, { status: 500 });
-}
-
 export function getBoundDb(platform: App.Platform | undefined): D1Database {
 	if (!platform?.env?.DB) {
-		throw new InventoryRouteError('The D1 database binding is not configured.', 500);
+		throw new InventoryRouteError('INTERNAL_ERROR', 'The D1 database binding is not configured.', 500);
 	}
 
 	return platform.env.DB;
@@ -154,10 +127,10 @@ export async function createApiKey(
 	role: ApiRole
 ): Promise<{ item: ApiKeyItem; token: string }> {
 	if (!name || name.trim().length === 0) {
-		throw new InventoryRouteError('Key name is required.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Key name is required.', 400);
 	}
 	if (role !== 'producer' && role !== 'consumer') {
-		throw new InventoryRouteError('Role must be producer or consumer.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Role must be producer or consumer.', 400);
 	}
 
 	const db = getDb(d1);
@@ -236,6 +209,7 @@ export function getBooleanQueryParam(url: URL, paramName: string): boolean {
 	}
 
 	throw new InventoryRouteError(
+		'INVALID_REQUEST',
 		`The "${paramName}" query parameter must be a boolean value.`,
 		400
 	);
@@ -245,7 +219,11 @@ export function getLimit(url: URL, fallback = 50, max = 200): number {
 	const rawLimit = Number(url.searchParams.get('limit')?.trim() || fallback);
 
 	if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
-		throw new InventoryRouteError('The "limit" query parameter must be a positive integer.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'The "limit" query parameter must be a positive integer.',
+			400
+		);
 	}
 
 	return Math.min(rawLimit, max);
@@ -288,7 +266,7 @@ export async function requireApiRole(
 	const token = extractApiToken(request);
 
 	if (!token) {
-		throw new InventoryRouteError('API token required.', 401);
+		throw new InventoryRouteError('INVALID_REQUEST', 'API token required.', 401);
 	}
 
 	const producerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'PRODUCER_API_TOKENS'));
@@ -321,11 +299,15 @@ export async function requireApiRole(
 	}
 
 	if (!role) {
-		throw new InventoryRouteError('Invalid API token.', 401);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Invalid API token.', 401);
 	}
 
 	if (!allowedRoles.includes(role)) {
-		throw new InventoryRouteError('This API token is not allowed to perform that action.', 403);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'This API token is not allowed to perform that action.',
+			403
+		);
 	}
 
 	return role;
@@ -333,7 +315,7 @@ export async function requireApiRole(
 
 export function normalizePartInput(payload: unknown): Required<PartInput> {
 	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Part payload must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Part payload must be a JSON object.', 400);
 	}
 
 	const name = normalizeString(payload.name, 'name');
@@ -342,7 +324,7 @@ export function normalizePartInput(payload: unknown): Required<PartInput> {
 	const metadata = payload.metadata ?? {};
 
 	if (!isPlainObject(metadata)) {
-		throw new InventoryRouteError('metadata must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'metadata must be a JSON object.', 400);
 	}
 
 	return {
@@ -355,7 +337,7 @@ export function normalizePartInput(payload: unknown): Required<PartInput> {
 
 export function normalizeTransactionInput(payload: unknown): Required<TransactionInput> {
 	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Transaction payload must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Transaction payload must be a JSON object.', 400);
 	}
 
 	const actor = normalizeString(payload.actor, 'actor');
@@ -364,12 +346,20 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 	const lines = payload.lines;
 
 	if (!Array.isArray(lines) || lines.length === 0) {
-		throw new InventoryRouteError('lines must contain at least one inventory change.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'lines must contain at least one inventory change.',
+			400
+		);
 	}
 
 	const normalizedLines = lines.map((line, index) => {
 		if (!isPlainObject(line)) {
-			throw new InventoryRouteError(`lines[${index}] must be a JSON object.`, 400);
+			throw new InventoryRouteError(
+				'INVALID_REQUEST',
+				`lines[${index}] must be a JSON object.`,
+				400
+			);
 		}
 
 		const partId = normalizeString(line.partId, `lines[${index}].partId`);
@@ -381,6 +371,7 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 			quantityDelta === 0
 		) {
 			throw new InventoryRouteError(
+				'INVALID_REQUEST',
 				`lines[${index}].quantityDelta must be a non-zero integer.`,
 				400
 			);
@@ -403,13 +394,13 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 
 export function normalizePartArchiveInput(payload: unknown): { id: string; archived: boolean } {
 	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Archive payload must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Archive payload must be a JSON object.', 400);
 	}
 
 	const id = normalizeString(payload.id, 'id');
 
 	if (typeof payload.archived !== 'boolean') {
-		throw new InventoryRouteError('archived must be a boolean.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'archived must be a boolean.', 400);
 	}
 
 	return {
@@ -426,7 +417,11 @@ export function buildFtsQuery(query: string): string {
 		.filter(Boolean);
 
 	if (tokens.length === 0) {
-		throw new InventoryRouteError('Search query must contain letters or numbers.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'Search query must contain letters or numbers.',
+			400
+		);
 	}
 
 	return tokens.map((token) => `${token}*`).join(' AND ');
@@ -592,7 +587,11 @@ export async function createPart(d1: D1Database, payload: unknown): Promise<Inve
 		});
 	} catch (cause) {
 		if (isSqliteUniqueError(cause)) {
-			throw new InventoryRouteError('A part with that manufacturer part number already exists.', 409);
+			throw new InventoryRouteError(
+				'INVALID_REQUEST',
+				'A part with that manufacturer part number already exists.',
+				409
+			);
 		}
 
 		throw cause;
@@ -627,7 +626,7 @@ export async function setPartArchivedStateById(
 	const existing = await db.select({ id: parts.id }).from(parts).where(eq(parts.id, partId)).limit(1);
 
 	if (existing.length === 0) {
-		throw new InventoryRouteError('Part not found.', 404);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Part not found.', 404);
 	}
 
 	const updatedAt = new Date().toISOString();
@@ -661,7 +660,11 @@ export async function createTransaction(
 		.where(inArray(parts.id, uniquePartIds));
 
 	if (existingParts.length !== uniquePartIds.length) {
-		throw new InventoryRouteError('One or more transaction lines reference an unknown part.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'One or more transaction lines reference an unknown part.',
+			400
+		);
 	}
 
 	await db.insert(inventoryChanges).values(
@@ -686,7 +689,11 @@ export async function createTransaction(
 
 function normalizeString(value: unknown, fieldName: string): string {
 	if (typeof value !== 'string' || value.trim().length === 0) {
-		throw new InventoryRouteError(`${fieldName} must be a non-empty string.`, 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			`${fieldName} must be a non-empty string.`,
+			400
+		);
 	}
 
 	return value.trim();
@@ -698,7 +705,7 @@ function normalizeOptionalString(value: unknown, fieldName: string): string | un
 	}
 
 	if (typeof value !== 'string') {
-		throw new InventoryRouteError(`${fieldName} must be a string.`, 400);
+		throw new InventoryRouteError('INVALID_REQUEST', `${fieldName} must be a string.`, 400);
 	}
 
 	const trimmed = value.trim();
@@ -712,6 +719,7 @@ function normalizeTimestamp(value: unknown): string {
 
 	if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
 		throw new InventoryRouteError(
+			'INVALID_REQUEST',
 			'recordedAt must be an ISO-8601 timestamp when it is provided.',
 			400
 		);
@@ -748,8 +756,4 @@ function isSqliteUniqueError(cause: unknown): boolean {
 function readOptionalEnvString(env: TokenEnv | undefined, key: string): string | undefined {
 	const value = (env as Record<string, unknown> | undefined)?.[key];
 	return typeof value === 'string' ? value : undefined;
-}
-
-export function isMissingSchemaError(cause: unknown): boolean {
-	return cause instanceof Error && /no such table|no such virtual table/i.test(cause.message);
 }

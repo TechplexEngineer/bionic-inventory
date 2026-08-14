@@ -5,6 +5,7 @@ import {
 	extractApiToken,
 	getArrayQueryParam,
 	getBooleanQueryParam,
+	getBoundDb,
 	normalizePartInput,
 	normalizePartArchiveInput,
 	normalizeTransactionInput,
@@ -85,6 +86,12 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 describe('inventory helpers', () => {
+	it('labels an unavailable database binding as an internal error', () => {
+		expect(() => getBoundDb(undefined)).toThrowError(
+			expect.objectContaining({ code: 'INTERNAL_ERROR', status: 500 })
+		);
+	});
+
 	it('stores only a hash and a safe prefix when creating a D1 API key', async () => {
 		const database = createD1Double();
 
