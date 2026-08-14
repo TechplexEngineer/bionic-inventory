@@ -551,9 +551,9 @@ function appendMetadataCondition(
 		}
 
 		conditions.push(
-			"(json_type(p.metadata, ?) = 'text' AND (json_extract(p.metadata, ?) COLLATE NOCASE) LIKE ('%' || ? || '%'))"
+			"(json_type(p.metadata, ?) = 'text' AND (json_extract(p.metadata, ?) COLLATE NOCASE) LIKE ('%' || ? || '%') ESCAPE '\\')"
 		);
-		params.push(path, path, filter.value);
+		params.push(path, path, escapeLikePattern(filter.value));
 		return;
 	}
 
@@ -573,6 +573,10 @@ function appendMetadataCondition(
 
 function jsonPropertyPath(propertyName: string): string {
 	return `$.${JSON.stringify(propertyName)}`;
+}
+
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 function invalidMetadataFilter(filter: MetadataFilter): InventoryRouteError {

@@ -33,7 +33,7 @@ export function parseInventoryQuery(
 	const seenOperators = new Map<string, Set<MetadataFilterOperator>>();
 
 	for (const [key, rawValue] of url.searchParams) {
-		if (!key.startsWith('meta')) continue;
+		if (!key.startsWith('meta[')) continue;
 
 		const match = metadataKeyPattern.exec(key);
 		if (!match) {

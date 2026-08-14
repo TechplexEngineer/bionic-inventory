@@ -49,12 +49,18 @@ describe('parseInventoryQuery', () => {
 		'meta[property-width][min][extra]=10',
 		'meta[][min]=10',
 		'meta[property-width][between]=10',
-		'meta[property-width][min',
-		'meta-property-width-min=10'
+		'meta[property-width][min'
 	])('rejects malformed metadata key %s', (keyAndValue) => {
 		expect(() => parse(`typeId=type-belt&${keyAndValue}`)).toThrowError(
 			expect.objectContaining({ code: 'INVALID_REQUEST', status: 400 })
 		);
+	});
+
+	it('ignores parameters outside the reserved meta bracket namespace', () => {
+		expect(parseInventoryQuery(new URL('https://example.test/api/inventory?metadata=legacy'))).toEqual({
+			showArchived: false,
+			metadataFilters: []
+		});
 	});
 
 	it('parses one-sided and inclusive two-sided numeric ranges', () => {

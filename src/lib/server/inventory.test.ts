@@ -537,6 +537,15 @@ describe('listFilteredInventory with local D1', () => {
 		]);
 	});
 
+	it('treats SQL LIKE metacharacters as literal text in contains filters', async () => {
+		expect(
+			await ids(`typeId=type-belt&meta[property-material][contains]=${encodeURIComponent('%')}`)
+		).toEqual([]);
+		expect(
+			await ids(`typeId=type-belt&meta[property-material][contains]=${encodeURIComponent('_')}`)
+		).toEqual([]);
+	});
+
 	it('matches numeric equality and inclusive integer or decimal bounds while excluding missing and non-numeric JSON values', async () => {
 		expect(await ids('typeId=type-belt&meta[property-width][exact]=10')).toEqual(['part-nylon']);
 		expect(await ids('typeId=type-belt&meta[property-width][min]=10')).toEqual([
