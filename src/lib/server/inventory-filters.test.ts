@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { Miniflare } from 'miniflare';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { InventoryTypeProperty } from './inventory-types';
-import { parseInventoryQuery } from './inventory-filters';
+import { listInventoryFacets, parseInventoryQuery } from './inventory-filters';
 
 type FilterProperty = Pick<InventoryTypeProperty, 'id' | 'name' | 'kind'>;
 
@@ -155,5 +157,165 @@ describe('parseInventoryQuery', () => {
 				'typeId=type-belt&meta[property-width][min]=20&meta[property-width][max]=10'
 			)
 		).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST', status: 400 }));
+	});
+});
+
+describe('listInventoryFacets with local D1', () => {
+	let miniflare: Miniflare;
+	let d1: D1Database;
+
+	const facetProperties: FilterProperty[] = [
+		{ id: 'property-material', name: 'Material', kind: 'text' },
+		{ id: 'property-color', name: 'Color', kind: 'text' },
+		{ id: 'property-width', name: 'Width', kind: 'numeric' }
+	];
+
+	function facetQuery(search: string) {
+		return parseInventoryQuery(
+			new URL(`https://example.test/api/inventory/facets?${search}`),
+			facetProperties
+		);
+	}
+
+	beforeAll(async () => {
+		miniflare = new Miniflare({
+			modules: true,
+			script: 'export default { fetch() { return new Response("ok") } }',
+			d1Databases: { DB: 'inventory-facet-test' }
+		});
+		d1 = (await miniflare.getD1Database('DB')) as unknown as D1Database;
+
+		for (const migration of [
+			'drizzle/0000_tired_natasha_romanoff.sql',
+			'drizzle/0001_api_keys.sql',
+			'drizzle/0002_archived_parts.sql',
+			'drizzle/0003_inventory_types.sql'
+		]) {
+			for (const statement of (await readFile(migration, 'utf8')).split('--> statement-breakpoint')) {
+				if (statement.trim()) await d1.prepare(statement).run();
+			}
+		}
+
+		const timestamp = '2026-08-14T12:00:00.000Z';
+		await d1.batch([
+			d1
+				.prepare(
+					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+				)
+				.bind('type-belt', 'Belt', 'belt', timestamp, timestamp),
+			d1
+				.prepare(
+					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+				)
+				.bind('type-bearing', 'Bearing', 'bearing', timestamp, timestamp),
+			...facetProperties.map((property) =>
+				d1
+					.prepare(
+						'INSERT INTO inventory_type_properties (id, inventory_type_id, name, normalized_name, kind, required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+					)
+					.bind(
+						property.id,
+						'type-belt',
+						property.name,
+						property.name.toLowerCase(),
+						property.kind,
+						0,
+						timestamp,
+						timestamp
+					)
+			)
+		]);
+
+		const parts = [
+			['part-black-upper', 'Facet Belt Alpha', 'FACET-1', { Material: 'Nylon', Color: 'Black', Width: 10 }, 'type-belt', null],
+			['part-black-lower', 'Facet Belt Beta', 'FACET-2', { Material: 'NYLON', Color: 'black', Width: 12 }, 'type-belt', null],
+			['part-red', 'Facet Belt Gamma', 'FACET-3', { Material: 'Nylon', Color: 'Red', Width: 14 }, 'type-belt', null],
+			['part-rubber', 'Facet Belt Delta', 'FACET-4', { Material: 'Rubber', Color: 'Black', Width: 16 }, 'type-belt', null],
+			['part-search-excluded', 'Unrelated Component', 'FACET-5', { Material: 'Nylon', Color: 'Orange' }, 'type-belt', null],
+			['part-archived', 'Facet Belt Archived', 'FACET-6', { Material: 'Nylon', Color: 'Green' }, 'type-belt', timestamp],
+			['part-other-type', 'Facet Belt Bearing', 'FACET-7', { Material: 'Nylon', Color: 'Yellow' }, 'type-bearing', null],
+			['part-missing', 'Facet Belt Missing', 'FACET-8', { Material: 'Nylon' }, 'type-belt', null],
+			['part-non-text', 'Facet Belt Invalid', 'FACET-9', { Material: 'Nylon', Color: 7 }, 'type-belt', null],
+			['part-id-excluded', 'Facet Belt ID Excluded', 'FACET-10', { Material: 'Nylon', Color: 'Cyan' }, 'type-belt', null],
+			['part-mfg-excluded', 'Facet Belt MFG Excluded', 'FACET-11', { Material: 'Nylon', Color: 'Purple' }, 'type-belt', null],
+			['part-umlaut-upper', 'Facet Belt Umlaut Upper', 'FACET-12', { Material: 'Nylon', Color: 'Ä' }, 'type-belt', null],
+			['part-umlaut-lower', 'Facet Belt Umlaut Lower', 'FACET-13', { Material: 'Nylon', Color: 'ä' }, 'type-belt', null]
+		] as const;
+
+		await d1.batch(
+			parts.map(([id, name, mfgPartNumber, metadata, typeId, archivedAt]) =>
+				d1
+					.prepare(
+						'INSERT INTO parts (id, name, mfg_part_number, description, metadata, inventory_type_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+					)
+					.bind(
+						id,
+						name,
+						mfgPartNumber,
+						'facet fixture',
+						JSON.stringify(metadata),
+						typeId,
+						archivedAt,
+						timestamp,
+						timestamp
+					)
+			)
+		);
+	});
+
+	afterAll(async () => {
+		await miniflare.dispose();
+	});
+
+	it('removes only each facet own filter while retaining every other inventory filter', async () => {
+		const includedIds = [
+			'part-black-upper',
+			'part-black-lower',
+			'part-red',
+			'part-rubber',
+			'part-search-excluded',
+			'part-archived',
+			'part-other-type',
+			'part-missing',
+			'part-non-text',
+			'part-mfg-excluded',
+			'part-umlaut-upper',
+			'part-umlaut-lower'
+		];
+		const query = facetQuery(
+			`typeId=type-belt&q=Belt&id=${includedIds.join(',')}&mfgPartNumber=${[
+				'FACET-1',
+				'FACET-2',
+				'FACET-3',
+				'FACET-4',
+				'FACET-5',
+				'FACET-6',
+				'FACET-7',
+				'FACET-8',
+				'FACET-9',
+				'FACET-10',
+				'FACET-12',
+				'FACET-13'
+			].join(',')}&meta[property-color][exact]=Black&meta[property-material][exact]=Nylon`
+		);
+
+		expect(await listInventoryFacets(d1, query)).toEqual([
+			{
+				propertyId: 'property-color',
+				values: [
+					{ value: 'Black', count: 2 },
+					{ value: 'Red', count: 1 },
+					{ value: 'Ä', count: 1 },
+					{ value: 'ä', count: 1 }
+				]
+			},
+			{
+				propertyId: 'property-material',
+				values: [
+					{ value: 'NYLON', count: 2 },
+					{ value: 'Rubber', count: 1 }
+				]
+			}
+		]);
 	});
 });

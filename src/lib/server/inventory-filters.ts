@@ -1,6 +1,12 @@
 import type { InventoryTypeProperty } from './inventory-types';
 import { InventoryRouteError } from './inventory-errors';
-import { getArrayQueryParam, getBooleanQueryParam, getSearchQuery } from './inventory';
+import { getInventoryType } from './inventory-types';
+import {
+	getArrayQueryParam,
+	getBooleanQueryParam,
+	getSearchQuery,
+	listFilteredInventory
+} from './inventory';
 
 export type MetadataFilterOperator = 'exact' | 'contains' | 'min' | 'max';
 
@@ -17,6 +23,16 @@ export interface InventoryQuery {
 	showArchived: boolean;
 	typeId?: string;
 	metadataFilters: MetadataFilter[];
+}
+
+export interface InventoryFacetValue {
+	value: string;
+	count: number;
+}
+
+export interface InventoryFacet {
+	propertyId: string;
+	values: InventoryFacetValue[];
 }
 
 export type FilterProperty = Pick<InventoryTypeProperty, 'id' | 'name' | 'kind'>;
@@ -126,6 +142,71 @@ export function getInventoryTypeId(url: URL): string | undefined {
 		throw invalidFilter('typeId must be provided at most once.', 'typeId');
 	}
 	return typeValues[0]?.trim() || undefined;
+}
+
+export async function listInventoryFacets(
+	d1: D1Database,
+	query: InventoryQuery
+): Promise<InventoryFacet[]> {
+	if (!query.typeId) {
+		throw invalidFilter('typeId is required when listing inventory facets.', 'typeId');
+	}
+
+	const inventoryType = await getInventoryType(d1, query.typeId);
+	if (!inventoryType) {
+		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+	}
+
+	const facets: InventoryFacet[] = [];
+	for (const property of inventoryType.properties) {
+		if (property.kind !== 'text') continue;
+
+		const parts = await listFilteredInventory(d1, {
+			...query,
+			metadataFilters: query.metadataFilters.filter(
+				(filter) => filter.propertyId !== property.id
+			)
+		});
+		const valuesByNormalizedValue = new Map<string, InventoryFacetValue>();
+
+		for (const part of parts) {
+			const value = part.metadata[property.name];
+			if (typeof value !== 'string') continue;
+
+			const normalizedValue = sqliteNoCaseKey(value);
+			const existing = valuesByNormalizedValue.get(normalizedValue);
+			if (!existing) {
+				valuesByNormalizedValue.set(normalizedValue, { value, count: 1 });
+				continue;
+			}
+
+			existing.count += 1;
+			if (value < existing.value) existing.value = value;
+		}
+
+		facets.push({
+			propertyId: property.id,
+			values: [...valuesByNormalizedValue.values()].sort((left, right) =>
+				compareFacetValues(left.value, right.value)
+			)
+		});
+	}
+
+	return facets;
+}
+
+function compareFacetValues(left: string, right: string): number {
+	const normalizedLeft = sqliteNoCaseKey(left);
+	const normalizedRight = sqliteNoCaseKey(right);
+	if (normalizedLeft < normalizedRight) return -1;
+	if (normalizedLeft > normalizedRight) return 1;
+	if (left < right) return -1;
+	if (left > right) return 1;
+	return 0;
+}
+
+function sqliteNoCaseKey(value: string): string {
+	return value.replace(/[A-Z]/g, (character) => character.toLowerCase());
 }
 
 function invalidFilter(message: string, field: string): InventoryRouteError {
