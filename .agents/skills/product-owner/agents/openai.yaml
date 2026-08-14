@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Owner"
+  short_description: "Turn product requests into approved requirements briefs"
+  default_prompt: "Use $product-owner to interview me and produce an approved Product Requirements Brief."
