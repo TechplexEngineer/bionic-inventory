@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ platform, request, url }) => {
 		}
 
 		const query = parseInventoryQuery(url, inventoryType?.properties);
-		const inventory = await listFilteredInventory(database, query);
+		const inventory = await listFilteredInventory(database, query, inventoryType);
 
 		return json({ inventory });
 	} catch (cause) {

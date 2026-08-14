@@ -54,12 +54,15 @@ function d1Result(changes = 0) {
 
 function createD1Double(options: {
 	types?: TypeRow[];
+	typeReadSequence?: TypeRow[][];
 	properties?: PropertyRow[];
 	parts?: PartRow[];
+	insertChanges?: number;
 	updateChanges?: number;
 	writeError?: Error;
 } = {}) {
 	const types = options.types ?? [];
+	let typeReadCount = 0;
 	const properties = options.properties ?? [];
 	const partRows = options.parts ?? [];
 	const writes: RecordedStatement[] = [];
@@ -72,10 +75,25 @@ function createD1Double(options: {
 				return statement;
 			},
 			raw: async () => {
-				if (/from [`"]inventory_types[`"]/.test(statementSql)) {
-					return types
-						.filter((row) => row.id === params[0])
-						.map((row) => [row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt]);
+				if (/from\s+[`"]?inventory_types/i.test(statementSql)) {
+					const readableTypes = options.typeReadSequence?.[typeReadCount++] ?? types;
+					return readableTypes.filter((row) => row.id === params[0]).flatMap((row) => {
+						const matchingProperties = properties.filter(
+							(property) => property.inventoryTypeId === row.id
+						);
+						if (matchingProperties.length === 0) {
+							return [[
+								row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt,
+								null, null, null, null, null, null, null, null, null, null
+							]];
+						}
+						return matchingProperties.map((property) => [
+							row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt,
+							property.id, property.inventoryTypeId, property.name, property.normalizedName,
+							property.kind, property.required ? 1 : 0, property.minimum, property.maximum,
+							property.createdAt, property.updatedAt
+						]);
+					});
 				}
 				if (/from [`"]inventory_type_properties[`"]/.test(statementSql)) {
 					return properties
@@ -99,10 +117,16 @@ function createD1Double(options: {
 				if (!/from parts/i.test(statementSql)) return null;
 				return partRows.find((row) => row.id === params[0]) ?? null;
 			},
-			run: async () => {
-				writes.push({ sql: statementSql, params: [...params] });
-				if (options.writeError) throw options.writeError;
-				return d1Result(/update parts/i.test(statementSql) ? (options.updateChanges ?? 1) : 1);
+				run: async () => {
+					writes.push({ sql: statementSql, params: [...params] });
+					if (options.writeError) throw options.writeError;
+					return d1Result(
+						/update parts/i.test(statementSql)
+							? (options.updateChanges ?? 1)
+							: /insert into parts/i.test(statementSql)
+								? (options.insertChanges ?? 1)
+								: 1
+					);
 			},
 			all: async () => d1Result()
 		};
@@ -266,6 +290,32 @@ describe('typed part creation', () => {
 			})
 		).rejects.toMatchObject({ code: 'TYPE_NOT_FOUND', status: 404, field: 'inventoryTypeId' });
 	});
+
+	it('rejects creation when the validated type definition is replaced before insertion', async () => {
+		const replacement = {
+			...beltType,
+			updatedAt: '2026-08-14T11:30:00.000Z'
+		};
+		const database = createD1Double({
+			types: [beltType],
+			typeReadSequence: [[beltType], [replacement]],
+			properties: [widthProperty],
+			insertChanges: 0
+		});
+
+		await expect(
+			createPart(database.d1, {
+				name: 'Timing Belt',
+				mfgPartNumber: 'GT2-120',
+				inventoryTypeId: beltType.id,
+				metadata: { Width: 12 }
+			})
+		).rejects.toMatchObject({ code: 'TYPE_UPDATE_CONFLICT', status: 409 });
+		expect(database.writes.at(-1)).toMatchObject({
+			sql: expect.stringMatching(/inventory_types[\s\S]+updated_at/i),
+			params: expect.arrayContaining([beltType.id, beltType.updatedAt])
+		});
+	});
 });
 
 describe('optimistic partial part editing', () => {
@@ -371,10 +421,39 @@ describe('optimistic partial part editing', () => {
 				updatedAt: storedPart.updatedAt
 			})
 		).rejects.toMatchObject({ code: 'PART_UPDATE_CONFLICT', status: 409, field: 'updatedAt' });
-		expect(database.writes.at(-1)?.params.slice(-2)).toEqual([
+		expect(database.writes.at(-1)?.params.slice(-4, -2)).toEqual([
 			storedPart.id,
 			storedPart.updatedAt
 		]);
+		expect(database.writes.at(-1)?.params.slice(-2)).toEqual([
+			beltType.id,
+			beltType.updatedAt
+		]);
+	});
+
+	it('rejects an update when the validated type definition is replaced before the guarded write', async () => {
+		const replacement = {
+			...beltType,
+			updatedAt: '2026-08-14T11:30:00.000Z'
+		};
+		const database = createD1Double({
+			types: [beltType],
+			typeReadSequence: [[beltType], [replacement]],
+			properties: [widthProperty],
+			parts: [storedPart],
+			updateChanges: 0
+		});
+
+		await expect(
+			updatePart(database.d1, storedPart.id, {
+				name: 'Renamed Belt',
+				updatedAt: storedPart.updatedAt
+			})
+		).rejects.toMatchObject({ code: 'TYPE_UPDATE_CONFLICT', status: 409 });
+		expect(database.writes.at(-1)).toMatchObject({
+			sql: expect.stringMatching(/inventory_types[\s\S]+updated_at/i),
+			params: expect.arrayContaining([beltType.id, beltType.updatedAt])
+		});
 	});
 
 	it('maps a destination-type deletion race during update to an unknown type', async () => {

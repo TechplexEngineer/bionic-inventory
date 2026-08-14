@@ -54,6 +54,9 @@ export interface ListInventoryOptions {
 	metadataFilters?: MetadataFilter[];
 }
 
+// Leaves room under D1's 100-variable ceiling for type, search, list, and facet bindings.
+export const MAX_METADATA_FILTERS = 20;
+
 type TokenEnv = object;
 
 type PartSearchRow = {
@@ -426,36 +429,14 @@ export async function searchInventory(
 
 export async function listFilteredInventory(
 	d1: D1Database,
-	query: InventoryQuery
+	query: InventoryQuery,
+	preloadedInventoryType?: InventoryTypeDefinition | null
 ): Promise<InventoryPart[]> {
-	const inventoryType = await loadFilterInventoryType(d1, query);
-	const conditions: string[] = [];
-	const params: unknown[] = [];
-	const usesFullTextSearch = Boolean(query.query);
-
-	if (query.query) {
-		conditions.push('parts_fts MATCH ?');
-		params.push(buildFtsQuery(query.query));
-	}
-	appendListCondition(conditions, params, 'p.mfg_part_number', query.mfgPartNumber);
-	appendListCondition(conditions, params, 'p.id', query.id);
-	if (!query.showArchived) conditions.push('p.archived_at IS NULL');
-	if (query.typeId) {
-		conditions.push('p.inventory_type_id = ?');
-		params.push(query.typeId);
-	}
-
-	if (query.metadataFilters.length > 0 && !inventoryType) {
-		throw new InventoryRouteError(
-			'INVALID_REQUEST',
-			'typeId is required when filtering metadata.',
-			400,
-			'typeId'
-		);
-	}
-	for (const filter of query.metadataFilters) {
-		appendMetadataCondition(conditions, params, filter, inventoryType!);
-	}
+	const inventoryType = await loadFilterInventoryType(d1, query, preloadedInventoryType);
+	const { conditions, params, usesFullTextSearch } = buildInventoryConditions(
+		query,
+		inventoryType
+	);
 
 	const source = usesFullTextSearch
 		? 'parts_fts JOIN parts p ON p.rowid = parts_fts.rowid'
@@ -500,14 +481,65 @@ export async function listFilteredInventory(
 
 async function loadFilterInventoryType(
 	d1: D1Database,
-	query: InventoryQuery
+	query: InventoryQuery,
+	preloadedInventoryType?: InventoryTypeDefinition | null
 ): Promise<InventoryTypeDefinition | null> {
 	if (!query.typeId) return null;
-	const inventoryType = await getInventoryType(d1, query.typeId);
+	const inventoryType =
+		preloadedInventoryType === undefined
+			? await getInventoryType(d1, query.typeId)
+			: preloadedInventoryType;
 	if (!inventoryType) {
 		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
 	}
+	if (inventoryType.id !== query.typeId) {
+		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+	}
 	return inventoryType;
+}
+
+export function buildInventoryConditions(
+	query: InventoryQuery,
+	inventoryType: InventoryTypeDefinition | null,
+	facetPropertyColumn?: string
+): { conditions: string[]; params: unknown[]; usesFullTextSearch: boolean } {
+	assertMetadataFilterLimit(query.metadataFilters);
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	const usesFullTextSearch = Boolean(query.query);
+
+	if (query.query) {
+		conditions.push('parts_fts MATCH ?');
+		params.push(buildFtsQuery(query.query));
+	}
+	appendListCondition(conditions, params, 'p.mfg_part_number', query.mfgPartNumber);
+	appendListCondition(conditions, params, 'p.id', query.id);
+	if (!query.showArchived) conditions.push('p.archived_at IS NULL');
+	if (query.typeId) {
+		conditions.push('p.inventory_type_id = ?');
+		params.push(query.typeId);
+	}
+
+	if (query.metadataFilters.length > 0 && !inventoryType) {
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'typeId is required when filtering metadata.',
+			400,
+			'typeId'
+		);
+	}
+	for (const filter of query.metadataFilters) {
+		const metadataCondition = buildMetadataCondition(filter, inventoryType!);
+		if (facetPropertyColumn) {
+			conditions.push(`(${facetPropertyColumn} = ? OR ${metadataCondition.sql})`);
+			params.push(filter.propertyId, ...metadataCondition.params);
+		} else {
+			conditions.push(metadataCondition.sql);
+			params.push(...metadataCondition.params);
+		}
+	}
+
+	return { conditions, params, usesFullTextSearch };
 }
 
 function appendListCondition(
@@ -517,16 +549,14 @@ function appendListCondition(
 	values: string[] | undefined
 ): void {
 	if (!values || values.length === 0) return;
-	conditions.push(`${column} IN (${values.map(() => '?').join(', ')})`);
-	params.push(...values);
+	conditions.push(`${column} IN (SELECT CAST(value AS TEXT) FROM json_each(?))`);
+	params.push(JSON.stringify(values));
 }
 
-function appendMetadataCondition(
-	conditions: string[],
-	params: unknown[],
+function buildMetadataCondition(
 	filter: MetadataFilter,
 	inventoryType: InventoryTypeDefinition
-): void {
+): { sql: string; params: unknown[] } {
 	const property = inventoryType.properties.find((candidate) => candidate.id === filter.propertyId);
 	if (!property) {
 		throw new InventoryRouteError(
@@ -543,18 +573,16 @@ function appendMetadataCondition(
 			throw invalidMetadataFilter(filter);
 		}
 		if (filter.operator === 'exact') {
-			conditions.push(
-				"(json_type(p.metadata, ?) = 'text' AND json_extract(p.metadata, ?) COLLATE NOCASE = ? COLLATE NOCASE)"
-			);
-			params.push(path, path, filter.value);
-			return;
+			return {
+				sql: "(json_type(p.metadata, ?) = 'text' AND json_extract(p.metadata, ?) COLLATE NOCASE = ? COLLATE NOCASE)",
+				params: [path, path, filter.value]
+			};
 		}
 
-		conditions.push(
-			"(json_type(p.metadata, ?) = 'text' AND (json_extract(p.metadata, ?) COLLATE NOCASE) LIKE ('%' || ? || '%') ESCAPE '\\')"
-		);
-		params.push(path, path, escapeLikePattern(filter.value));
-		return;
+		return {
+			sql: "(json_type(p.metadata, ?) = 'text' AND instr(lower(json_extract(p.metadata, ?)), lower(?)) > 0)",
+			params: [path, path, filter.value]
+		};
 	}
 
 	if (
@@ -565,18 +593,14 @@ function appendMetadataCondition(
 		throw invalidMetadataFilter(filter);
 	}
 	const comparison = filter.operator === 'exact' ? '=' : filter.operator === 'min' ? '>=' : '<=';
-	conditions.push(
-		`(json_type(p.metadata, ?) IN ('integer', 'real') AND json_extract(p.metadata, ?) ${comparison} ?)`
-	);
-	params.push(path, path, filter.value);
+	return {
+		sql: `(json_type(p.metadata, ?) IN ('integer', 'real') AND json_extract(p.metadata, ?) ${comparison} ?)`,
+		params: [path, path, filter.value]
+	};
 }
 
 function jsonPropertyPath(propertyName: string): string {
 	return `$.${JSON.stringify(propertyName)}`;
-}
-
-function escapeLikePattern(value: string): string {
-	return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 function invalidMetadataFilter(filter: MetadataFilter): InventoryRouteError {
@@ -585,6 +609,16 @@ function invalidMetadataFilter(filter: MetadataFilter): InventoryRouteError {
 		'The metadata filter operator or value does not match its property kind.',
 		400,
 		`meta[${filter.propertyId}][${filter.operator}]`
+	);
+}
+
+function assertMetadataFilterLimit(filters: MetadataFilter[]): void {
+	if (filters.length <= MAX_METADATA_FILTERS) return;
+	throw new InventoryRouteError(
+		'INVALID_REQUEST',
+		`At most ${MAX_METADATA_FILTERS} metadata filters may be provided.`,
+		400,
+		'meta'
 	);
 }
 

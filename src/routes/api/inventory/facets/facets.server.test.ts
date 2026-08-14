@@ -80,7 +80,11 @@ describe('inventory facets API', () => {
 			expect.any(URL),
 			typeDefinition.properties
 		);
-		expect(filters.listInventoryFacets).toHaveBeenCalledWith({ binding: 'd1' }, query);
+		expect(filters.listInventoryFacets).toHaveBeenCalledWith(
+			{ binding: 'd1' },
+			query,
+			typeDefinition
+		);
 	});
 
 	it('requires typeId before querying facet values', async () => {

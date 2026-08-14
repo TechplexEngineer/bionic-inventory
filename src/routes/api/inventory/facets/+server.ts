@@ -30,7 +30,7 @@ export const GET: RequestHandler = async ({ platform, request, url }) => {
 		}
 
 		const query = parseInventoryQuery(url, inventoryType.properties);
-		const facets = await listInventoryFacets(database, query);
+		const facets = await listInventoryFacets(database, query, inventoryType);
 		return json({ facets });
 	} catch (cause) {
 		return handleInventoryError(cause);

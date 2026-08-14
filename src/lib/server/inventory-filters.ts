@@ -1,11 +1,11 @@
-import type { InventoryTypeProperty } from './inventory-types';
+import type { InventoryTypeDefinition, InventoryTypeProperty } from './inventory-types';
 import { InventoryRouteError } from './inventory-errors';
-import { getInventoryType } from './inventory-types';
 import {
+	buildInventoryConditions,
 	getArrayQueryParam,
 	getBooleanQueryParam,
 	getSearchQuery,
-	listFilteredInventory
+	MAX_METADATA_FILTERS
 } from './inventory';
 
 export type MetadataFilterOperator = 'exact' | 'contains' | 'min' | 'max';
@@ -109,6 +109,12 @@ export function parseInventoryQuery(
 		operators.add(operator);
 		seenOperators.set(propertyId, operators);
 		metadataFilters.push({ propertyId, operator, value });
+		if (metadataFilters.length > MAX_METADATA_FILTERS) {
+			throw invalidFilter(
+				`At most ${MAX_METADATA_FILTERS} metadata filters may be provided.`,
+				'meta'
+			);
+		}
 	}
 
 	for (const [propertyId, operators] of seenOperators) {
@@ -146,53 +152,66 @@ export function getInventoryTypeId(url: URL): string | undefined {
 
 export async function listInventoryFacets(
 	d1: D1Database,
-	query: InventoryQuery
+	query: InventoryQuery,
+	inventoryType: InventoryTypeDefinition
 ): Promise<InventoryFacet[]> {
 	if (!query.typeId) {
 		throw invalidFilter('typeId is required when listing inventory facets.', 'typeId');
 	}
 
-	const inventoryType = await getInventoryType(d1, query.typeId);
-	if (!inventoryType) {
+	if (inventoryType.id !== query.typeId) {
 		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
 	}
 
-	const facets: InventoryFacet[] = [];
-	for (const property of inventoryType.properties) {
-		if (property.kind !== 'text') continue;
-
-		const parts = await listFilteredInventory(d1, {
-			...query,
-			metadataFilters: query.metadataFilters.filter(
-				(filter) => filter.propertyId !== property.id
+	const textProperties = inventoryType.properties.filter((property) => property.kind === 'text');
+	if (textProperties.length === 0) return [];
+	const { conditions, params, usesFullTextSearch } = buildInventoryConditions(
+		query,
+		inventoryType,
+		'facet_properties.property_id'
+	);
+	const source = usesFullTextSearch
+		? 'parts_fts JOIN parts p ON p.rowid = parts_fts.rowid'
+		: 'parts p';
+	const propertyPath = "'$.' || json_quote(facet_properties.property_name)";
+	conditions.push(`json_type(p.metadata, ${propertyPath}) = 'text'`);
+	const result = await d1
+		.prepare(
+			`WITH facet_properties AS (
+				SELECT
+					json_extract(value, '$.id') AS property_id,
+					json_extract(value, '$.name') AS property_name
+				FROM json_each(?)
 			)
-		});
-		const valuesByNormalizedValue = new Map<string, InventoryFacetValue>();
-
-		for (const part of parts) {
-			const value = part.metadata[property.name];
-			if (typeof value !== 'string') continue;
-
-			const normalizedValue = sqliteNoCaseKey(value);
-			const existing = valuesByNormalizedValue.get(normalizedValue);
-			if (!existing) {
-				valuesByNormalizedValue.set(normalizedValue, { value, count: 1 });
-				continue;
-			}
-
-			existing.count += 1;
-			if (value < existing.value) existing.value = value;
-		}
-
-		facets.push({
-			propertyId: property.id,
-			values: [...valuesByNormalizedValue.values()].sort((left, right) =>
-				compareFacetValues(left.value, right.value)
-			)
-		});
+			SELECT
+				facet_properties.property_id,
+				MIN(json_extract(p.metadata, ${propertyPath})) AS value,
+				COUNT(*) AS count
+			FROM ${source}
+			CROSS JOIN facet_properties
+			WHERE ${conditions.join(' AND ')}
+			GROUP BY
+				facet_properties.property_id,
+				json_extract(p.metadata, ${propertyPath}) COLLATE NOCASE`
+		)
+		.bind(
+			JSON.stringify(textProperties.map((property) => ({ id: property.id, name: property.name }))),
+			...params
+		)
+		.all<{ property_id: string; value: string; count: number }>();
+	const valuesByProperty = new Map<string, InventoryFacetValue[]>();
+	for (const row of result.results ?? []) {
+		const values = valuesByProperty.get(row.property_id) ?? [];
+		values.push({ value: row.value, count: Number(row.count) });
+		valuesByProperty.set(row.property_id, values);
 	}
 
-	return facets;
+	return textProperties.map((property) => ({
+		propertyId: property.id,
+		values: (valuesByProperty.get(property.id) ?? []).sort((left, right) =>
+			compareFacetValues(left.value, right.value)
+		)
+	}));
 }
 
 function compareFacetValues(left: string, right: string): number {

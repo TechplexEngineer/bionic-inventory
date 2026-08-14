@@ -87,9 +87,9 @@ export const load: PageServerLoad = async ({ platform, url }) => {
 		selectedType = inventoryTypes.find((inventoryType) => inventoryType.id === selectedTypeId) ?? null;
 		filters = parseInventoryQuery(url, selectedType?.properties);
 		const [parts, history, facets] = await Promise.all([
-			listFilteredInventory(d1, filters),
+			listFilteredInventory(d1, filters, selectedType),
 			listHistory(d1, { limit: 100 }),
-			selectedType ? listInventoryFacets(d1, filters) : Promise.resolve([])
+			selectedType ? listInventoryFacets(d1, filters, selectedType) : Promise.resolve([])
 		]);
 
 		return {

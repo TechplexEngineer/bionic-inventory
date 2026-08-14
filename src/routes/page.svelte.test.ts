@@ -196,6 +196,25 @@ describe('read-only dashboard metadata filters', () => {
 		});
 	});
 
+	it('omits stale metadata when submitting a newly selected inventory type', async () => {
+		renderPage(true);
+		const typeSelect = screen.getByRole('combobox', { name: 'Inventory type' });
+		const submit = screen.getByRole('button', { name: 'Apply filters' });
+		const filterForm = submit.closest('form');
+		if (!filterForm) throw new TypeError('Expected the filter form.');
+
+		await fireEvent.change(typeSelect, { target: { value: 'type-bearing' } });
+		await fireEvent.submit(filterForm);
+
+		expect(Object.fromEntries(new FormData(filterForm))).toEqual({
+			q: 'drive',
+			mfgPartNumber: 'BELT-10',
+			id: 'part-typed',
+			typeId: 'type-bearing',
+			showArchived: '1'
+		});
+	});
+
 	it('preserves raw type and metadata state when a definition is unavailable', async () => {
 		const errorData = {
 			...pageData(false),

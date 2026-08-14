@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { Miniflare } from 'miniflare';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { InventoryTypeProperty } from './inventory-types';
+import type { InventoryTypeDefinition, InventoryTypeProperty } from './inventory-types';
 import { listInventoryFacets, parseInventoryQuery } from './inventory-filters';
 
 type FilterProperty = Pick<InventoryTypeProperty, 'id' | 'name' | 'kind'>;
@@ -158,6 +158,21 @@ describe('parseInventoryQuery', () => {
 			)
 		).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST', status: 400 }));
 	});
+
+	it('rejects more metadata predicates than fit safely within one D1 statement', () => {
+		const properties = Array.from({ length: 21 }, (_, index) => ({
+			id: `property-${index}`,
+			name: `Property ${index}`,
+			kind: 'text' as const
+		}));
+		const params = new URLSearchParams({ typeId: 'type-wide' });
+		for (const property of properties) {
+			params.set(`meta[${property.id}][exact]`, 'value');
+		}
+
+		expect(() => parseInventoryQuery(new URL(`https://example.test/?${params}`), properties))
+			.toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST', status: 400, field: 'meta' }));
+	});
 });
 
 describe('listInventoryFacets with local D1', () => {
@@ -169,6 +184,38 @@ describe('listInventoryFacets with local D1', () => {
 		{ id: 'property-color', name: 'Color', kind: 'text' },
 		{ id: 'property-width', name: 'Width', kind: 'numeric' }
 	];
+	const wideFacetProperties: FilterProperty[] = Array.from({ length: 16 }, (_, index) => ({
+		id: `property-wide-${index}`,
+		name: `Facet ${index}`,
+		kind: 'text' as const
+	}));
+
+	function definition(
+		id: string,
+		name: string,
+		properties: FilterProperty[]
+	): InventoryTypeDefinition {
+		const timestamp = '2026-08-14T12:00:00.000Z';
+		return {
+			id,
+			name,
+			normalizedName: name.toLowerCase(),
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			properties: [...properties].sort((left, right) =>
+				left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+			).map((property) => ({
+				...property,
+				inventoryTypeId: id,
+				normalizedName: property.name.toLowerCase(),
+				required: false,
+				minimum: null,
+				maximum: null,
+				createdAt: timestamp,
+				updatedAt: timestamp
+			}))
+		};
+	}
 
 	function facetQuery(search: string) {
 		return parseInventoryQuery(
@@ -208,6 +255,11 @@ describe('listInventoryFacets with local D1', () => {
 					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
 				)
 				.bind('type-bearing', 'Bearing', 'bearing', timestamp, timestamp),
+			d1
+				.prepare(
+					'INSERT INTO inventory_types (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+				)
+				.bind('type-wide', 'Wide', 'wide', timestamp, timestamp),
 			...facetProperties.map((property) =>
 				d1
 					.prepare(
@@ -216,6 +268,22 @@ describe('listInventoryFacets with local D1', () => {
 					.bind(
 						property.id,
 						'type-belt',
+						property.name,
+						property.name.toLowerCase(),
+						property.kind,
+						0,
+						timestamp,
+						timestamp
+					)
+			),
+			...wideFacetProperties.map((property) =>
+				d1
+					.prepare(
+						'INSERT INTO inventory_type_properties (id, inventory_type_id, name, normalized_name, kind, required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+					)
+					.bind(
+						property.id,
+						'type-wide',
 						property.name,
 						property.name.toLowerCase(),
 						property.kind,
@@ -243,7 +311,17 @@ describe('listInventoryFacets with local D1', () => {
 		] as const;
 
 		await d1.batch(
-			parts.map(([id, name, mfgPartNumber, metadata, typeId, archivedAt]) =>
+			[
+				...parts,
+				[
+					'part-wide',
+					'Wide Facets',
+					'WIDE-1',
+					Object.fromEntries(wideFacetProperties.map((property) => [property.name, 'Present'])),
+					'type-wide',
+					null
+				] as const
+			].map(([id, name, mfgPartNumber, metadata, typeId, archivedAt]) =>
 				d1
 					.prepare(
 						'INSERT INTO parts (id, name, mfg_part_number, description, metadata, inventory_type_id, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -299,7 +377,7 @@ describe('listInventoryFacets with local D1', () => {
 			].join(',')}&meta[property-color][exact]=Black&meta[property-material][exact]=Nylon`
 		);
 
-		expect(await listInventoryFacets(d1, query)).toEqual([
+		expect(await listInventoryFacets(d1, query, definition('type-belt', 'Belt', facetProperties))).toEqual([
 			{
 				propertyId: 'property-color',
 				values: [
@@ -317,5 +395,32 @@ describe('listInventoryFacets with local D1', () => {
 				]
 			}
 		]);
+	});
+
+	it('returns 16 text facets with one grouped count query when the definition is already loaded', async () => {
+		let prepareCount = 0;
+		const countedD1 = {
+			prepare(sql: string) {
+				prepareCount += 1;
+				return d1.prepare(sql);
+			},
+			batch: d1.batch.bind(d1),
+			exec: d1.exec.bind(d1),
+			dump: d1.dump.bind(d1)
+		} as unknown as D1Database;
+		const inventoryType = definition('type-wide', 'Wide', wideFacetProperties);
+		const query = parseInventoryQuery(
+			new URL('https://example.test/api/inventory/facets?typeId=type-wide'),
+			wideFacetProperties
+		);
+
+		const startedAt = performance.now();
+		const facets = await listInventoryFacets(countedD1, query, inventoryType);
+		const durationMs = performance.now() - startedAt;
+
+		expect(prepareCount).toBe(1);
+		expect(facets).toHaveLength(16);
+		expect(facets.every((facet) => facet.values[0]?.value === 'Present')).toBe(true);
+		expect(durationMs).toBeLessThan(1_000);
 	});
 });

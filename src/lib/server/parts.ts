@@ -69,10 +69,15 @@ export async function createPart(d1: D1Database, payload: unknown): Promise<Inve
 	const id = crypto.randomUUID();
 	const timestamp = new Date().toISOString();
 
+	let result: D1Result;
 	try {
-		await d1
+		result = await d1
 			.prepare(
-				'INSERT INTO parts (id, name, mfg_part_number, description, metadata, inventory_type_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+				`INSERT INTO parts (id, name, mfg_part_number, description, metadata, inventory_type_id, created_at, updated_at)
+				 SELECT ?, ?, ?, ?, ?, ?, ?, ?
+				 WHERE EXISTS (
+					SELECT 1 FROM inventory_types WHERE id = ? AND updated_at = ?
+				 )`
 			)
 			.bind(
 				id,
@@ -82,11 +87,16 @@ export async function createPart(d1: D1Database, payload: unknown): Promise<Inve
 				JSON.stringify(metadata),
 				inventoryType.id,
 				timestamp,
-				timestamp
+				timestamp,
+				inventoryType.id,
+				inventoryType.updatedAt
 			)
 			.run();
 	} catch (cause) {
 		throw translatePartWriteError(cause);
+	}
+	if (Number(result.meta.changes ?? 0) === 0) {
+		throw inventoryTypeUpdateConflict();
 	}
 
 	return {
@@ -148,7 +158,12 @@ export async function updatePart(
 	try {
 		result = await d1
 			.prepare(
-				'UPDATE parts SET name = ?, mfg_part_number = ?, description = ?, metadata = ?, inventory_type_id = ?, updated_at = ? WHERE id = ? AND updated_at = ?'
+				`UPDATE parts
+				 SET name = ?, mfg_part_number = ?, description = ?, metadata = ?, inventory_type_id = ?, updated_at = ?
+				 WHERE id = ? AND updated_at = ?
+					AND EXISTS (
+						SELECT 1 FROM inventory_types WHERE id = ? AND updated_at = ?
+					)`
 			)
 			.bind(
 				updated.name,
@@ -158,13 +173,19 @@ export async function updatePart(
 				updated.inventoryTypeId,
 				updated.updatedAt,
 				partId,
-				patch.updatedAt
+				patch.updatedAt,
+				inventoryType.id,
+				inventoryType.updatedAt
 			)
 			.run();
 	} catch (cause) {
 		throw translatePartWriteError(cause);
 	}
 	if (Number(result.meta.changes ?? 0) === 0) {
+		const currentType = await getInventoryType(d1, inventoryType.id);
+		if (!currentType || currentType.updatedAt !== inventoryType.updatedAt) {
+			throw inventoryTypeUpdateConflict();
+		}
 		throw partUpdateConflict();
 	}
 
@@ -318,6 +339,15 @@ function inventoryTypeNotFound(): InventoryRouteError {
 		'TYPE_NOT_FOUND',
 		'Inventory type not found.',
 		404,
+		'inventoryTypeId'
+	);
+}
+
+function inventoryTypeUpdateConflict(): InventoryRouteError {
+	return new InventoryRouteError(
+		'TYPE_UPDATE_CONFLICT',
+		'The inventory type changed after it was validated.',
+		409,
 		'inventoryTypeId'
 	);
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const inventory = vi.hoisted(() => ({
+	MAX_METADATA_FILTERS: 20,
 	listInventory: vi.fn(),
 	listFilteredInventory: vi.fn(),
 	requireApiRole: vi.fn().mockResolvedValue('consumer'),
@@ -86,7 +87,8 @@ describe('inventory API filters', () => {
 				metadataFilters: [
 					{ propertyId: 'property-material', operator: 'contains', value: 'nyl' }
 				]
-			}
+			},
+			typeDefinition
 		);
 		expect(inventory.listInventory).not.toHaveBeenCalled();
 	});

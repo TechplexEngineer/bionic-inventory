@@ -50,6 +50,7 @@ function d1Result(results: unknown[] = [], changes = 0) {
 function createD1Double(options: {
 	types?: TypeRow[];
 	properties?: PropertyRow[];
+	afterTypeRead?: (types: TypeRow[], properties: PropertyRow[]) => void;
 	partTypeIds?: string[];
 	batchChanges?: number;
 	batchError?: Error;
@@ -74,15 +75,30 @@ function createD1Double(options: {
 			},
 			raw: async () => {
 				prepared.push({ sql: statementSql, params });
-				if (/from [`"]inventory_types[`"]/.test(statementSql)) {
+				if (/from\s+[`"]?inventory_types/i.test(statementSql)) {
 					const matching = params.length > 0 ? types.filter((row) => row.id === params[0]) : types;
-					return matching.map((row) => [
-						row.id,
-						row.name,
-						row.normalizedName,
-						row.createdAt,
-						row.updatedAt
-					]);
+					const rows = matching.flatMap((row) => {
+						const matchingProperties = properties.filter(
+							(property) => property.inventoryTypeId === row.id
+						);
+						if (!/left join/i.test(statementSql)) {
+							return [[row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt]];
+						}
+						if (matchingProperties.length === 0) {
+							return [[
+								row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt,
+								null, null, null, null, null, null, null, null, null, null
+							]];
+						}
+						return matchingProperties.map((property) => [
+							row.id, row.name, row.normalizedName, row.createdAt, row.updatedAt,
+							property.id, property.inventoryTypeId, property.name, property.normalizedName,
+							property.kind, property.required ? 1 : 0, property.minimum, property.maximum,
+							property.createdAt, property.updatedAt
+						]);
+					});
+					options.afterTypeRead?.(types, properties);
+					return rows;
 				}
 				if (/from [`"]inventory_type_properties[`"]/.test(statementSql)) {
 					const typeIds = params.filter((param): param is string => typeof param === 'string');
@@ -251,6 +267,50 @@ describe('inventory type lifecycle', () => {
 			properties: [storedWidth]
 		});
 		await expect(getInventoryType(database.d1, 'missing')).resolves.toBeNull();
+	});
+
+	it('lists 101 definitions in one joined snapshot without a per-type bind', async () => {
+		const types = Array.from({ length: 101 }, (_, index) => ({
+			...storedType,
+			id: `type-${String(index).padStart(3, '0')}`,
+			name: `Type ${String(index).padStart(3, '0')}`,
+			normalizedName: `type ${String(index).padStart(3, '0')}`
+		}));
+		const properties = types.map((inventoryType, index) => ({
+			...storedWidth,
+			id: `property-${index}`,
+			inventoryTypeId: inventoryType.id
+		}));
+		const database = createD1Double({ types, properties });
+
+		await expect(listInventoryTypes(database.d1)).resolves.toHaveLength(101);
+		expect(database.prepared).toHaveLength(1);
+		expect(database.prepared[0]).toMatchObject({
+			sql: expect.stringMatching(/left join[\s\S]+inventory_type_properties/i),
+			params: []
+		});
+	});
+
+	it('cannot combine a type row from one version with properties from a later version', async () => {
+		const originalType = { ...storedType };
+		const originalProperty = { ...storedWidth, updatedAt: storedType.updatedAt };
+		const database = createD1Double({
+			types: [originalType],
+			properties: [originalProperty],
+			afterTypeRead: (types, properties) => {
+				types[0] = { ...types[0], updatedAt: '2026-08-14T13:00:00.000Z' };
+				properties[0] = { ...properties[0], required: false, updatedAt: '2026-08-14T13:00:00.000Z' };
+			}
+		});
+
+		const observed = await getInventoryType(database.d1, storedType.id);
+
+		expect(observed?.updatedAt).toBe(storedType.updatedAt);
+		expect(observed?.properties[0]).toMatchObject({
+			required: true,
+			updatedAt: storedType.updatedAt
+		});
+		expect(database.prepared).toHaveLength(1);
 	});
 
 	it('creates a complete definition in one D1 batch', async () => {

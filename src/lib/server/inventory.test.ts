@@ -16,6 +16,7 @@ import {
 	listFilteredInventory
 } from './inventory';
 import { parseInventoryQuery, type FilterProperty } from './inventory-filters';
+import type { InventoryTypeDefinition } from './inventory-types';
 
 type StoredApiKey = {
 	keyHash: string;
@@ -337,6 +338,23 @@ describe('listFilteredInventory with local D1', () => {
 		{ id: 'property-width', name: 'Width', kind: 'numeric' },
 		{ id: 'property-teeth', name: 'Teeth', kind: 'numeric' }
 	];
+	const beltDefinition: InventoryTypeDefinition = {
+		id: 'type-belt',
+		name: 'Belt',
+		normalizedName: 'belt',
+		createdAt: '2026-08-14T12:00:00.000Z',
+		updatedAt: '2026-08-14T12:00:00.000Z',
+		properties: beltProperties.map((property) => ({
+			...property,
+			inventoryTypeId: 'type-belt',
+			normalizedName: property.name.toLowerCase(),
+			required: false,
+			minimum: null,
+			maximum: null,
+			createdAt: '2026-08-14T12:00:00.000Z',
+			updatedAt: '2026-08-14T12:00:00.000Z'
+		}))
+	};
 
 	function query(search = '') {
 		return parseInventoryQuery(
@@ -546,6 +564,30 @@ describe('listFilteredInventory with local D1', () => {
 		).toEqual([]);
 	});
 
+	it('uses an unbounded substring expression for contains values longer than D1 LIKE permits', async () => {
+		let inventorySql = '';
+		const observedD1 = {
+			prepare(sql: string) {
+				inventorySql = sql;
+				return d1.prepare(sql);
+			},
+			batch: d1.batch.bind(d1),
+			exec: d1.exec.bind(d1),
+			dump: d1.dump.bind(d1)
+		} as unknown as D1Database;
+		const longValue = 'x'.repeat(80);
+
+		await expect(
+			listFilteredInventory(
+				observedD1,
+				query(`typeId=type-belt&meta[property-material][contains]=${longValue}`),
+				beltDefinition
+			)
+		).resolves.toEqual([]);
+		expect(inventorySql).toMatch(/instr\s*\(/i);
+		expect(inventorySql).not.toMatch(/\slike\s/i);
+	});
+
 	it('matches numeric equality and inclusive integer or decimal bounds while excluding missing and non-numeric JSON values', async () => {
 		expect(await ids('typeId=type-belt&meta[property-width][exact]=10')).toEqual(['part-nylon']);
 		expect(await ids('typeId=type-belt&meta[property-width][min]=10')).toEqual([
@@ -583,6 +625,22 @@ describe('listFilteredInventory with local D1', () => {
 			)
 		).toEqual(['part-nylon']);
 		expect(await ids('typeId=type-belt&id=part-rubber')).toEqual(['part-rubber']);
+	});
+
+	it('accepts large ID and manufacturer lists without exceeding D1 binding limits', async () => {
+		const ids = Array.from({ length: 150 }, (_, index) => `missing-part-${index}`);
+		ids.push('part-nylon');
+		const manufacturers = Array.from({ length: 150 }, (_, index) => `MISSING-${index}`);
+		manufacturers.push('BELT-NYLON');
+
+		await expect(
+			listFilteredInventory(d1, {
+				id: ids,
+				mfgPartNumber: manufacturers,
+				showArchived: false,
+				metadataFilters: []
+			})
+		).resolves.toMatchObject([{ id: 'part-nylon' }]);
 	});
 
 	it('includes archived matches only when archive visibility is enabled', async () => {

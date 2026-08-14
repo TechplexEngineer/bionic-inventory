@@ -204,7 +204,7 @@ meta[<property-id>][min]=10
 meta[<property-id>][max]=20
 ```
 
-`exact` and `contains` are case-insensitive for text. Numeric `exact`, inclusive `min`, and inclusive `max` accept decimals; a range may provide either side or both. All active metadata filters combine with AND, and a part missing an optional filtered property does not match. Operators incompatible with the property kind, repeated/conflicting operators, unknown property IDs, non-finite numbers, and `min > max` return structured client errors.
+`exact` and `contains` are case-insensitive for text. Numeric `exact`, inclusive `min`, and inclusive `max` accept decimals; a range may provide either side or both. All active metadata filters combine with AND, and a part missing an optional filtered property does not match. A request may contain at most 20 metadata filter predicates (a numeric `min` plus `max` counts as two); larger requests return a structured `400 INVALID_REQUEST`. Operators incompatible with the property kind, repeated/conflicting operators, unknown property IDs, non-finite numbers, and `min > max` also return structured client errors.
 
 For example:
 

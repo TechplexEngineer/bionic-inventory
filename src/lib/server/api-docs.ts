@@ -171,7 +171,7 @@ export function getApiDocumentation(): ApiDocumentation {
 						type: 'string',
 						required: false,
 						description:
-							'Filter metadata by stable property ID. Text supports exact or case-insensitive contains. Numeric supports exact and inclusive min/max; either range bound may be omitted. Conflicting or repeated scalar operators are rejected.',
+							'Filter metadata by stable property ID. Text supports exact or case-insensitive contains. Numeric supports exact and inclusive min/max; either range bound may be omitted. At most 20 metadata filter predicates are accepted per request; conflicting, repeated, or excess predicates return 400.',
 						examples: metadataFilterExamples()
 					}
 				],
@@ -276,7 +276,7 @@ const data = await response.json();`
 						type: 'string',
 						required: false,
 						description:
-							'Uses the same stable-ID exact, contains, min, and max syntax and validation as GET /inventory.',
+							'Uses the same stable-ID exact, contains, min, and max syntax, 20-predicate limit, and validation as GET /inventory.',
 						examples: metadataFilterExamples()
 					}
 				],

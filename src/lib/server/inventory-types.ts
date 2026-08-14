@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from './db';
-import { inventoryTypeProperties, inventoryTypes, parts } from './db/schema';
+import { inventoryTypes, parts } from './db/schema';
 import { InventoryRouteError } from './inventory-errors';
 
 export type InventoryPropertyKind = 'text' | 'numeric';
@@ -58,6 +58,24 @@ export interface InventoryTypeDefinition {
 	updatedAt: string;
 	properties: InventoryTypeProperty[];
 }
+
+type InventoryTypeJoinRow = [
+	string,
+	string,
+	string,
+	string,
+	string,
+	string | null,
+	string | null,
+	string | null,
+	string | null,
+	InventoryPropertyKind | null,
+	number | boolean | null,
+	number | null,
+	number | null,
+	string | null,
+	string | null
+];
 
 export function normalizeTypeDefinition(payload: unknown): NormalizedInventoryTypeDefinition {
 	if (!isPlainObject(payload)) {
@@ -176,54 +194,14 @@ export function normalizeTypeDefinition(payload: unknown): NormalizedInventoryTy
 }
 
 export async function listInventoryTypes(d1: D1Database): Promise<InventoryTypeDefinition[]> {
-	const db = getDb(d1);
-	const typeRows = await db
-		.select({
-			id: inventoryTypes.id,
-			name: inventoryTypes.name,
-			normalizedName: inventoryTypes.normalizedName,
-			createdAt: inventoryTypes.createdAt,
-			updatedAt: inventoryTypes.updatedAt
-		})
-		.from(inventoryTypes)
-		.orderBy(asc(inventoryTypes.name));
-
-	if (typeRows.length === 0) {
-		return [];
-	}
-
-	const propertyRows = await selectProperties(d1, typeRows.map((row) => row.id));
-	return typeRows.map((row) => ({
-		...row,
-		properties: propertyRows.filter((property) => property.inventoryTypeId === row.id)
-	}));
+	return readInventoryTypes(d1);
 }
 
 export async function getInventoryType(
 	d1: D1Database,
 	id: string
 ): Promise<InventoryTypeDefinition | null> {
-	const db = getDb(d1);
-	const [typeRow] = await db
-		.select({
-			id: inventoryTypes.id,
-			name: inventoryTypes.name,
-			normalizedName: inventoryTypes.normalizedName,
-			createdAt: inventoryTypes.createdAt,
-			updatedAt: inventoryTypes.updatedAt
-		})
-		.from(inventoryTypes)
-		.where(eq(inventoryTypes.id, id))
-		.limit(1);
-
-	if (!typeRow) {
-		return null;
-	}
-
-	return {
-		...typeRow,
-		properties: await selectProperties(d1, [id])
-	};
+	return (await readInventoryTypes(d1, id))[0] ?? null;
 }
 
 export async function createInventoryType(
@@ -460,27 +438,53 @@ export async function deleteInventoryType(d1: D1Database, id: string): Promise<v
 	}
 }
 
-async function selectProperties(
+async function readInventoryTypes(
 	d1: D1Database,
-	typeIds: string[]
-): Promise<InventoryTypeProperty[]> {
-	const db = getDb(d1);
-	return db
-		.select({
-			id: inventoryTypeProperties.id,
-			inventoryTypeId: inventoryTypeProperties.inventoryTypeId,
-			name: inventoryTypeProperties.name,
-			normalizedName: inventoryTypeProperties.normalizedName,
-			kind: inventoryTypeProperties.kind,
-			required: inventoryTypeProperties.required,
-			minimum: inventoryTypeProperties.minimum,
-			maximum: inventoryTypeProperties.maximum,
-			createdAt: inventoryTypeProperties.createdAt,
-			updatedAt: inventoryTypeProperties.updatedAt
-		})
-		.from(inventoryTypeProperties)
-		.where(inArray(inventoryTypeProperties.inventoryTypeId, typeIds))
-		.orderBy(asc(inventoryTypeProperties.name));
+	id?: string
+): Promise<InventoryTypeDefinition[]> {
+	const sql = `SELECT
+		it.id, it.name, it.normalized_name, it.created_at, it.updated_at,
+		property.id, property.inventory_type_id, property.name, property.normalized_name,
+		property.kind, property.required, property.minimum, property.maximum,
+		property.created_at, property.updated_at
+	FROM inventory_types it
+	LEFT JOIN inventory_type_properties property ON property.inventory_type_id = it.id
+	${id ? 'WHERE it.id = ?' : ''}
+	ORDER BY it.name ASC, property.name ASC`;
+	const prepared = d1.prepare(sql);
+	const rows = await (id ? prepared.bind(id) : prepared).raw<InventoryTypeJoinRow>();
+	const definitions = new Map<string, InventoryTypeDefinition>();
+
+	for (const row of rows) {
+		let definition = definitions.get(row[0]);
+		if (!definition) {
+			definition = {
+				id: row[0],
+				name: row[1],
+				normalizedName: row[2],
+				createdAt: row[3],
+				updatedAt: row[4],
+				properties: []
+			};
+			definitions.set(definition.id, definition);
+		}
+
+		if (row[5] === null) continue;
+		definition.properties.push({
+			id: row[5],
+			inventoryTypeId: row[6]!,
+			name: row[7]!,
+			normalizedName: row[8]!,
+			kind: row[9]!,
+			required: Boolean(row[10]),
+			minimum: row[11],
+			maximum: row[12],
+			createdAt: row[13]!,
+			updatedAt: row[14]!
+		});
+	}
+
+	return [...definitions.values()];
 }
 
 function translateDefinitionConstraint(cause: unknown): unknown {

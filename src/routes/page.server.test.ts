@@ -108,10 +108,15 @@ describe('dashboard server load', () => {
 			loadEvent.url,
 			beltType.properties
 		);
-		expect(inventory.listFilteredInventory).toHaveBeenCalledWith({ binding: 'd1' }, filters);
+		expect(inventory.listFilteredInventory).toHaveBeenCalledWith(
+			{ binding: 'd1' },
+			filters,
+			beltType
+		);
 		expect(inventoryFilters.listInventoryFacets).toHaveBeenCalledWith(
 			{ binding: 'd1' },
-			filters
+			filters,
+			beltType
 		);
 		expect(result).toMatchObject({
 			databaseConfigured: true,

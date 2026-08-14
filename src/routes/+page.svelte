@@ -113,11 +113,15 @@
 	function handleFilterSubmit(event: SubmitEvent) {
 		const filterForm = event.currentTarget as HTMLFormElement;
 		const typeSelect = filterForm.elements.namedItem('typeId');
+		const selectedTypeChanged =
+			typeSelect instanceof HTMLSelectElement &&
+			typeSelect.value !== (data.filters.typeId ?? '');
 		const metadataInputs = filterForm.querySelectorAll<HTMLInputElement>('input[name^="meta["]');
 		for (const input of metadataInputs) {
 			if (
 				!(typeSelect instanceof HTMLSelectElement) ||
 				!typeSelect.value ||
+				selectedTypeChanged ||
 				(input.dataset.metadataControl === 'true' && !input.value)
 			) {
 				input.disabled = true;
