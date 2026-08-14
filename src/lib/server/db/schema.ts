@@ -1,5 +1,50 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const inventoryTypes = sqliteTable(
+	'inventory_types',
+	{
+		id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+		name: text('name').notNull(),
+		normalizedName: text('normalized_name').notNull(),
+		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`)
+	},
+	(table) => [uniqueIndex('inventory_types_normalized_name_idx').on(table.normalizedName)]
+);
+
+export const inventoryTypeProperties = sqliteTable(
+	'inventory_type_properties',
+	{
+		id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+		inventoryTypeId: text('inventory_type_id')
+			.notNull()
+			.references(() => inventoryTypes.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		normalizedName: text('normalized_name').notNull(),
+		kind: text('kind').$type<'text' | 'numeric'>().notNull(),
+		required: integer('required', { mode: 'boolean' }).notNull(),
+		minimum: real('minimum'),
+		maximum: real('maximum'),
+		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`)
+	},
+	(table) => [
+		uniqueIndex('inventory_type_properties_type_name_idx').on(
+			table.inventoryTypeId,
+			table.normalizedName
+		),
+		check('inventory_type_properties_kind_check', sql`${table.kind} IN ('text', 'numeric')`),
+		check(
+			'inventory_type_properties_text_bounds_check',
+			sql`${table.kind} <> 'text' OR (${table.minimum} IS NULL AND ${table.maximum} IS NULL)`
+		),
+		check(
+			'inventory_type_properties_bounds_check',
+			sql`${table.minimum} IS NULL OR ${table.maximum} IS NULL OR ${table.minimum} <= ${table.maximum}`
+		)
+	]
+);
 
 export const parts = sqliteTable(
 	'parts',
@@ -9,6 +54,9 @@ export const parts = sqliteTable(
 		mfgPartNumber: text('mfg_part_number').notNull(),
 		description: text('description').notNull().default(''),
 		metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+		inventoryTypeId: text('inventory_type_id').references(() => inventoryTypes.id, {
+			onDelete: 'restrict'
+		}),
 		archivedAt: text('archived_at'),
 		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`)
@@ -16,6 +64,7 @@ export const parts = sqliteTable(
 	(table) => [
 		uniqueIndex('parts_mfg_part_number_idx').on(table.mfgPartNumber),
 		index('parts_name_idx').on(table.name),
+		index('parts_inventory_type_idx').on(table.inventoryTypeId),
 		index('parts_archived_at_idx').on(table.archivedAt)
 	]
 );

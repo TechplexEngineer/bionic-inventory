@@ -1,7 +1,14 @@
-import { json } from '@sveltejs/kit';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { apiKeys, inventoryChanges, parts } from '$lib/server/db/schema';
+import { InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+import { getInventoryType, type InventoryTypeDefinition } from './inventory-types';
+import type { InventoryQuery, MetadataFilter } from './inventory-filters';
+import type { InventoryPart } from './parts';
+
+export { handleInventoryError, InventoryRouteError, isMissingSchemaError } from './inventory-errors';
+export { createPart, normalizePartInput, updatePart } from './parts';
+export type { InventoryPart, PartInput, PartPatchInput } from './parts';
 
 export type ApiRole = 'producer' | 'consumer';
 
@@ -12,16 +19,6 @@ export interface ApiKeyItem {
 	role: ApiRole;
 	createdAt: string;
 	revokedAt: string | null;
-}
-
-export interface InventoryPart {
-	id: string;
-	name: string;
-	mfgPartNumber: string;
-	description: string;
-	metadata: Record<string, unknown>;
-	quantity: number;
-	archivedAt: string | null;
 }
 
 export interface InventoryHistoryEntry {
@@ -35,13 +32,6 @@ export interface InventoryHistoryEntry {
 	usedIn: string | null;
 	note: string | null;
 	recordedAt: string;
-}
-
-export interface PartInput {
-	name: string;
-	mfgPartNumber: string;
-	description?: string;
-	metadata?: Record<string, unknown>;
 }
 
 export interface TransactionInput {
@@ -60,7 +50,12 @@ export interface ListInventoryOptions {
 	mfgPartNumber?: string[];
 	id?: string[];
 	showArchived?: boolean;
+	typeId?: string;
+	metadataFilters?: MetadataFilter[];
 }
+
+// Leaves room under D1's 100-variable ceiling for type, search, list, and facet bindings.
+export const MAX_METADATA_FILTERS = 20;
 
 type TokenEnv = object;
 
@@ -70,42 +65,16 @@ type PartSearchRow = {
 	mfg_part_number: string;
 	description: string;
 	metadata: string | Record<string, unknown> | null;
+	inventory_type_id: string | null;
+	inventory_type_name: string | null;
 	archived_at: string | null;
+	updated_at: string;
 	quantity: number | string | null;
 };
 
-class InventoryRouteError extends Error {
-	constructor(
-		message: string,
-		public readonly status: number
-	) {
-		super(message);
-	}
-}
-
-export function handleInventoryError(cause: unknown): Response {
-	if (cause instanceof InventoryRouteError) {
-		return json({ error: cause.message }, { status: cause.status });
-	}
-
-	if (cause instanceof SyntaxError) {
-		return json({ error: 'Request body must be valid JSON.' }, { status: 400 });
-	}
-
-	if (isMissingSchemaError(cause)) {
-		return json(
-			{ error: 'The database schema has not been initialized. Run the D1 migration first.' },
-			{ status: 503 }
-		);
-	}
-
-	console.error(cause);
-	return json({ error: 'Internal server error.' }, { status: 500 });
-}
-
 export function getBoundDb(platform: App.Platform | undefined): D1Database {
 	if (!platform?.env?.DB) {
-		throw new InventoryRouteError('The D1 database binding is not configured.', 500);
+		throw new InventoryRouteError('INTERNAL_ERROR', 'The D1 database binding is not configured.', 500);
 	}
 
 	return platform.env.DB;
@@ -154,10 +123,10 @@ export async function createApiKey(
 	role: ApiRole
 ): Promise<{ item: ApiKeyItem; token: string }> {
 	if (!name || name.trim().length === 0) {
-		throw new InventoryRouteError('Key name is required.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Key name is required.', 400);
 	}
 	if (role !== 'producer' && role !== 'consumer') {
-		throw new InventoryRouteError('Role must be producer or consumer.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Role must be producer or consumer.', 400);
 	}
 
 	const db = getDb(d1);
@@ -236,6 +205,7 @@ export function getBooleanQueryParam(url: URL, paramName: string): boolean {
 	}
 
 	throw new InventoryRouteError(
+		'INVALID_REQUEST',
 		`The "${paramName}" query parameter must be a boolean value.`,
 		400
 	);
@@ -245,7 +215,11 @@ export function getLimit(url: URL, fallback = 50, max = 200): number {
 	const rawLimit = Number(url.searchParams.get('limit')?.trim() || fallback);
 
 	if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
-		throw new InventoryRouteError('The "limit" query parameter must be a positive integer.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'The "limit" query parameter must be a positive integer.',
+			400
+		);
 	}
 
 	return Math.min(rawLimit, max);
@@ -288,7 +262,7 @@ export async function requireApiRole(
 	const token = extractApiToken(request);
 
 	if (!token) {
-		throw new InventoryRouteError('API token required.', 401);
+		throw new InventoryRouteError('INVALID_REQUEST', 'API token required.', 401);
 	}
 
 	const producerTokens = parseConfiguredTokens(readOptionalEnvString(env, 'PRODUCER_API_TOKENS'));
@@ -321,41 +295,23 @@ export async function requireApiRole(
 	}
 
 	if (!role) {
-		throw new InventoryRouteError('Invalid API token.', 401);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Invalid API token.', 401);
 	}
 
 	if (!allowedRoles.includes(role)) {
-		throw new InventoryRouteError('This API token is not allowed to perform that action.', 403);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'This API token is not allowed to perform that action.',
+			403
+		);
 	}
 
 	return role;
 }
 
-export function normalizePartInput(payload: unknown): Required<PartInput> {
-	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Part payload must be a JSON object.', 400);
-	}
-
-	const name = normalizeString(payload.name, 'name');
-	const mfgPartNumber = normalizeString(payload.mfgPartNumber, 'mfgPartNumber');
-	const description = normalizeOptionalString(payload.description, 'description') ?? '';
-	const metadata = payload.metadata ?? {};
-
-	if (!isPlainObject(metadata)) {
-		throw new InventoryRouteError('metadata must be a JSON object.', 400);
-	}
-
-	return {
-		name,
-		mfgPartNumber,
-		description,
-		metadata
-	};
-}
-
 export function normalizeTransactionInput(payload: unknown): Required<TransactionInput> {
 	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Transaction payload must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Transaction payload must be a JSON object.', 400);
 	}
 
 	const actor = normalizeString(payload.actor, 'actor');
@@ -364,12 +320,20 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 	const lines = payload.lines;
 
 	if (!Array.isArray(lines) || lines.length === 0) {
-		throw new InventoryRouteError('lines must contain at least one inventory change.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'lines must contain at least one inventory change.',
+			400
+		);
 	}
 
 	const normalizedLines = lines.map((line, index) => {
 		if (!isPlainObject(line)) {
-			throw new InventoryRouteError(`lines[${index}] must be a JSON object.`, 400);
+			throw new InventoryRouteError(
+				'INVALID_REQUEST',
+				`lines[${index}] must be a JSON object.`,
+				400
+			);
 		}
 
 		const partId = normalizeString(line.partId, `lines[${index}].partId`);
@@ -381,6 +345,7 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 			quantityDelta === 0
 		) {
 			throw new InventoryRouteError(
+				'INVALID_REQUEST',
 				`lines[${index}].quantityDelta must be a non-zero integer.`,
 				400
 			);
@@ -403,13 +368,13 @@ export function normalizeTransactionInput(payload: unknown): Required<Transactio
 
 export function normalizePartArchiveInput(payload: unknown): { id: string; archived: boolean } {
 	if (!isPlainObject(payload)) {
-		throw new InventoryRouteError('Archive payload must be a JSON object.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Archive payload must be a JSON object.', 400);
 	}
 
 	const id = normalizeString(payload.id, 'id');
 
 	if (typeof payload.archived !== 'boolean') {
-		throw new InventoryRouteError('archived must be a boolean.', 400);
+		throw new InventoryRouteError('INVALID_REQUEST', 'archived must be a boolean.', 400);
 	}
 
 	return {
@@ -426,7 +391,11 @@ export function buildFtsQuery(query: string): string {
 		.filter(Boolean);
 
 	if (tokens.length === 0) {
-		throw new InventoryRouteError('Search query must contain letters or numbers.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'Search query must contain letters or numbers.',
+			400
+		);
 	}
 
 	return tokens.map((token) => `${token}*`).join(' AND ');
@@ -436,66 +405,14 @@ export async function listInventory(
 	d1: D1Database,
 	options: ListInventoryOptions = {}
 ): Promise<InventoryPart[]> {
-	if (options.query) {
-		let results = await searchInventory(d1, options.query, options.showArchived);
-		if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
-			results = results.filter((p) => options.mfgPartNumber!.includes(p.mfgPartNumber));
-		}
-		if (options.id && options.id.length > 0) {
-			results = results.filter((p) => options.id!.includes(p.id));
-		}
-		return results;
-	}
-
-	const db = getDb(d1);
-	const quantityExpression = sql<number>`coalesce(sum(${inventoryChanges.quantityDelta}), 0)`;
-
-	const conditions = [];
-	if (options.mfgPartNumber && options.mfgPartNumber.length > 0) {
-		conditions.push(inArray(parts.mfgPartNumber, options.mfgPartNumber));
-	}
-	if (options.id && options.id.length > 0) {
-		conditions.push(inArray(parts.id, options.id));
-	}
-	if (!options.showArchived) {
-		conditions.push(isNull(parts.archivedAt));
-	}
-
-	let queryBuilder = db
-		.select({
-			id: parts.id,
-			name: parts.name,
-			mfgPartNumber: parts.mfgPartNumber,
-			description: parts.description,
-			metadata: parts.metadata,
-			archivedAt: parts.archivedAt,
-			quantity: quantityExpression
-		})
-		.from(parts)
-		.leftJoin(inventoryChanges, eq(parts.id, inventoryChanges.partId));
-
-	if (conditions.length > 0) {
-		const whereCondition = conditions.length === 1 ? conditions[0] : and(...conditions);
-		queryBuilder = queryBuilder.where(whereCondition) as typeof queryBuilder;
-	}
-
-	const rows = await queryBuilder
-		.groupBy(
-			parts.id,
-			parts.name,
-			parts.mfgPartNumber,
-			parts.description,
-			parts.metadata,
-			parts.archivedAt
-		)
-		.orderBy(asc(parts.name));
-
-	return rows.map((row) => ({
-		...row,
-		archivedAt: row.archivedAt ?? null,
-		metadata: row.metadata ?? {},
-		quantity: Number(row.quantity)
-	}));
+	return listFilteredInventory(d1, {
+		...(options.query ? { query: options.query } : {}),
+		...(options.mfgPartNumber ? { mfgPartNumber: options.mfgPartNumber } : {}),
+		...(options.id ? { id: options.id } : {}),
+		showArchived: options.showArchived ?? false,
+		...(options.typeId ? { typeId: options.typeId } : {}),
+		metadataFilters: options.metadataFilters ?? []
+	});
 }
 
 export async function searchInventory(
@@ -503,28 +420,49 @@ export async function searchInventory(
 	query: string,
 	showArchived = false
 ): Promise<InventoryPart[]> {
-	const statement = d1
-		.prepare(
-			`
-				SELECT
-					p.id,
-					p.name,
-					p.mfg_part_number,
-					p.description,
-					p.metadata,
-					p.archived_at,
-					COALESCE(SUM(ic.quantity_delta), 0) AS quantity
-				FROM parts_fts
-				JOIN parts p ON p.rowid = parts_fts.rowid
-				LEFT JOIN inventory_changes ic ON ic.part_id = p.id
-				WHERE parts_fts MATCH ?
-				${showArchived ? '' : 'AND p.archived_at IS NULL'}
-				GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata, p.archived_at
-				ORDER BY p.name ASC
-			`
-		)
-		.bind(buildFtsQuery(query));
+	return listFilteredInventory(d1, {
+		query,
+		showArchived,
+		metadataFilters: []
+	});
+}
 
+export async function listFilteredInventory(
+	d1: D1Database,
+	query: InventoryQuery,
+	preloadedInventoryType?: InventoryTypeDefinition | null
+): Promise<InventoryPart[]> {
+	const inventoryType = await loadFilterInventoryType(d1, query, preloadedInventoryType);
+	const { conditions, params, usesFullTextSearch } = buildInventoryConditions(
+		query,
+		inventoryType
+	);
+
+	const source = usesFullTextSearch
+		? 'parts_fts JOIN parts p ON p.rowid = parts_fts.rowid'
+		: 'parts p';
+	const statementSql = `
+		SELECT
+			p.id,
+			p.name,
+			p.mfg_part_number,
+			p.description,
+			p.metadata,
+			p.inventory_type_id,
+			it.name AS inventory_type_name,
+			p.archived_at,
+			p.updated_at,
+			COALESCE(SUM(ic.quantity_delta), 0) AS quantity
+		FROM ${source}
+		LEFT JOIN inventory_types it ON it.id = p.inventory_type_id
+		LEFT JOIN inventory_changes ic ON ic.part_id = p.id
+		${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+		GROUP BY p.id, p.name, p.mfg_part_number, p.description, p.metadata,
+			p.inventory_type_id, it.name, p.archived_at, p.updated_at
+		ORDER BY p.name ASC
+	`;
+	const prepared = d1.prepare(statementSql);
+	const statement = params.length > 0 ? prepared.bind(...params) : prepared;
 	const result = await statement.all<PartSearchRow>();
 
 	return (result.results ?? []).map((row) => ({
@@ -533,9 +471,155 @@ export async function searchInventory(
 		mfgPartNumber: row.mfg_part_number,
 		description: row.description,
 		metadata: parseMetadata(row.metadata),
+		inventoryTypeId: row.inventory_type_id,
+		inventoryTypeName: row.inventory_type_name,
 		archivedAt: row.archived_at ?? null,
+		updatedAt: row.updated_at,
 		quantity: Number(row.quantity ?? 0)
 	}));
+}
+
+async function loadFilterInventoryType(
+	d1: D1Database,
+	query: InventoryQuery,
+	preloadedInventoryType?: InventoryTypeDefinition | null
+): Promise<InventoryTypeDefinition | null> {
+	if (!query.typeId) return null;
+	const inventoryType =
+		preloadedInventoryType === undefined
+			? await getInventoryType(d1, query.typeId)
+			: preloadedInventoryType;
+	if (!inventoryType) {
+		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+	}
+	if (inventoryType.id !== query.typeId) {
+		throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+	}
+	return inventoryType;
+}
+
+export function buildInventoryConditions(
+	query: InventoryQuery,
+	inventoryType: InventoryTypeDefinition | null,
+	facetPropertyColumn?: string
+): { conditions: string[]; params: unknown[]; usesFullTextSearch: boolean } {
+	assertMetadataFilterLimit(query.metadataFilters);
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	const usesFullTextSearch = Boolean(query.query);
+
+	if (query.query) {
+		conditions.push('parts_fts MATCH ?');
+		params.push(buildFtsQuery(query.query));
+	}
+	appendListCondition(conditions, params, 'p.mfg_part_number', query.mfgPartNumber);
+	appendListCondition(conditions, params, 'p.id', query.id);
+	if (!query.showArchived) conditions.push('p.archived_at IS NULL');
+	if (query.typeId) {
+		conditions.push('p.inventory_type_id = ?');
+		params.push(query.typeId);
+	}
+
+	if (query.metadataFilters.length > 0 && !inventoryType) {
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'typeId is required when filtering metadata.',
+			400,
+			'typeId'
+		);
+	}
+	for (const filter of query.metadataFilters) {
+		const metadataCondition = buildMetadataCondition(filter, inventoryType!);
+		if (facetPropertyColumn) {
+			conditions.push(`(${facetPropertyColumn} = ? OR ${metadataCondition.sql})`);
+			params.push(filter.propertyId, ...metadataCondition.params);
+		} else {
+			conditions.push(metadataCondition.sql);
+			params.push(...metadataCondition.params);
+		}
+	}
+
+	return { conditions, params, usesFullTextSearch };
+}
+
+function appendListCondition(
+	conditions: string[],
+	params: unknown[],
+	column: 'p.mfg_part_number' | 'p.id',
+	values: string[] | undefined
+): void {
+	if (!values || values.length === 0) return;
+	conditions.push(`${column} IN (SELECT CAST(value AS TEXT) FROM json_each(?))`);
+	params.push(JSON.stringify(values));
+}
+
+function buildMetadataCondition(
+	filter: MetadataFilter,
+	inventoryType: InventoryTypeDefinition
+): { sql: string; params: unknown[] } {
+	const property = inventoryType.properties.find((candidate) => candidate.id === filter.propertyId);
+	if (!property) {
+		throw new InventoryRouteError(
+			'PROPERTY_NOT_FOUND',
+			'The metadata filter property does not belong to the selected inventory type.',
+			404,
+			`meta[${filter.propertyId}]`
+		);
+	}
+
+	const path = jsonPropertyPath(property.name);
+	if (property.kind === 'text') {
+		if ((filter.operator !== 'exact' && filter.operator !== 'contains') || typeof filter.value !== 'string') {
+			throw invalidMetadataFilter(filter);
+		}
+		if (filter.operator === 'exact') {
+			return {
+				sql: "(json_type(p.metadata, ?) = 'text' AND json_extract(p.metadata, ?) COLLATE NOCASE = ? COLLATE NOCASE)",
+				params: [path, path, filter.value]
+			};
+		}
+
+		return {
+			sql: "(json_type(p.metadata, ?) = 'text' AND instr(lower(json_extract(p.metadata, ?)), lower(?)) > 0)",
+			params: [path, path, filter.value]
+		};
+	}
+
+	if (
+		!['exact', 'min', 'max'].includes(filter.operator) ||
+		typeof filter.value !== 'number' ||
+		!Number.isFinite(filter.value)
+	) {
+		throw invalidMetadataFilter(filter);
+	}
+	const comparison = filter.operator === 'exact' ? '=' : filter.operator === 'min' ? '>=' : '<=';
+	return {
+		sql: `(json_type(p.metadata, ?) IN ('integer', 'real') AND json_extract(p.metadata, ?) ${comparison} ?)`,
+		params: [path, path, filter.value]
+	};
+}
+
+function jsonPropertyPath(propertyName: string): string {
+	return `$.${JSON.stringify(propertyName)}`;
+}
+
+function invalidMetadataFilter(filter: MetadataFilter): InventoryRouteError {
+	return new InventoryRouteError(
+		'INVALID_REQUEST',
+		'The metadata filter operator or value does not match its property kind.',
+		400,
+		`meta[${filter.propertyId}][${filter.operator}]`
+	);
+}
+
+function assertMetadataFilterLimit(filters: MetadataFilter[]): void {
+	if (filters.length <= MAX_METADATA_FILTERS) return;
+	throw new InventoryRouteError(
+		'INVALID_REQUEST',
+		`At most ${MAX_METADATA_FILTERS} metadata filters may be provided.`,
+		400,
+		'meta'
+	);
 }
 
 export async function listHistory(
@@ -577,38 +661,6 @@ export async function listHistory(
 	}));
 }
 
-export async function createPart(d1: D1Database, payload: unknown): Promise<InventoryPart> {
-	const input = normalizePartInput(payload);
-	const db = getDb(d1);
-	const id = crypto.randomUUID();
-
-	try {
-		await db.insert(parts).values({
-			id,
-			name: input.name,
-			mfgPartNumber: input.mfgPartNumber,
-			description: input.description,
-			metadata: input.metadata
-		});
-	} catch (cause) {
-		if (isSqliteUniqueError(cause)) {
-			throw new InventoryRouteError('A part with that manufacturer part number already exists.', 409);
-		}
-
-		throw cause;
-	}
-
-	return {
-		id,
-		name: input.name,
-		mfgPartNumber: input.mfgPartNumber,
-		description: input.description,
-		metadata: input.metadata,
-		archivedAt: null,
-		quantity: 0
-	};
-}
-
 export async function setPartArchivedState(
 	d1: D1Database,
 	payload: unknown
@@ -627,7 +679,7 @@ export async function setPartArchivedStateById(
 	const existing = await db.select({ id: parts.id }).from(parts).where(eq(parts.id, partId)).limit(1);
 
 	if (existing.length === 0) {
-		throw new InventoryRouteError('Part not found.', 404);
+		throw new InventoryRouteError('INVALID_REQUEST', 'Part not found.', 404);
 	}
 
 	const updatedAt = new Date().toISOString();
@@ -661,7 +713,11 @@ export async function createTransaction(
 		.where(inArray(parts.id, uniquePartIds));
 
 	if (existingParts.length !== uniquePartIds.length) {
-		throw new InventoryRouteError('One or more transaction lines reference an unknown part.', 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			'One or more transaction lines reference an unknown part.',
+			400
+		);
 	}
 
 	await db.insert(inventoryChanges).values(
@@ -686,7 +742,11 @@ export async function createTransaction(
 
 function normalizeString(value: unknown, fieldName: string): string {
 	if (typeof value !== 'string' || value.trim().length === 0) {
-		throw new InventoryRouteError(`${fieldName} must be a non-empty string.`, 400);
+		throw new InventoryRouteError(
+			'INVALID_REQUEST',
+			`${fieldName} must be a non-empty string.`,
+			400
+		);
 	}
 
 	return value.trim();
@@ -698,7 +758,7 @@ function normalizeOptionalString(value: unknown, fieldName: string): string | un
 	}
 
 	if (typeof value !== 'string') {
-		throw new InventoryRouteError(`${fieldName} must be a string.`, 400);
+		throw new InventoryRouteError('INVALID_REQUEST', `${fieldName} must be a string.`, 400);
 	}
 
 	const trimmed = value.trim();
@@ -712,6 +772,7 @@ function normalizeTimestamp(value: unknown): string {
 
 	if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
 		throw new InventoryRouteError(
+			'INVALID_REQUEST',
 			'recordedAt must be an ISO-8601 timestamp when it is provided.',
 			400
 		);
@@ -741,15 +802,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isSqliteUniqueError(cause: unknown): boolean {
-	return cause instanceof Error && cause.message.includes('UNIQUE constraint failed');
-}
-
 function readOptionalEnvString(env: TokenEnv | undefined, key: string): string | undefined {
 	const value = (env as Record<string, unknown> | undefined)?.[key];
 	return typeof value === 'string' ? value : undefined;
-}
-
-export function isMissingSchemaError(cause: unknown): boolean {
-	return cause instanceof Error && /no such table|no such virtual table/i.test(cause.message);
 }

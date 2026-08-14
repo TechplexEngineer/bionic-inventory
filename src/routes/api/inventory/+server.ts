@@ -1,26 +1,28 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
-	getArrayQueryParam,
-	getBooleanQueryParam,
 	getBoundDb,
-	getSearchQuery,
 	handleInventoryError,
-	listInventory,
+	listFilteredInventory,
 	requireApiRole
 } from '$lib/server/inventory';
+import { InventoryRouteError } from '$lib/server/inventory-errors';
+import { getInventoryType } from '$lib/server/inventory-types';
+import { getInventoryTypeId, parseInventoryQuery } from '$lib/server/inventory-filters';
 
 export const GET: RequestHandler = async ({ platform, request, url }) => {
 	try {
 		const d1 = platform?.env?.DB ? getBoundDb(platform) : undefined;
 		await requireApiRole(request, platform?.env, ['consumer', 'producer'], d1);
+		const database = getBoundDb(platform);
+		const typeId = getInventoryTypeId(url);
+		const inventoryType = typeId ? await getInventoryType(database, typeId) : null;
+		if (typeId && !inventoryType) {
+			throw new InventoryRouteError('TYPE_NOT_FOUND', 'Inventory type not found.', 404, 'typeId');
+		}
 
-		const inventory = await listInventory(getBoundDb(platform), {
-			query: getSearchQuery(url),
-			mfgPartNumber: getArrayQueryParam(url, 'mfgPartNumber'),
-			id: getArrayQueryParam(url, 'id'),
-			showArchived: getBooleanQueryParam(url, 'showArchived')
-		});
+		const query = parseInventoryQuery(url, inventoryType?.properties);
+		const inventory = await listFilteredInventory(database, query, inventoryType);
 
 		return json({ inventory });
 	} catch (cause) {

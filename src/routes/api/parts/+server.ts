@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { createPart } from '$lib/server/parts';
 import {
-	createPart,
 	getBoundDb,
 	handleInventoryError,
 	requireApiRole,
