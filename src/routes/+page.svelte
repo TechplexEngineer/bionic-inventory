@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { data } = $props();
+	let { data, form } = $props();
 
 	function totalQuantity() {
 		return data.parts.reduce((sum, part) => sum + part.quantity, 0);
@@ -16,6 +16,10 @@
 
 	function formatTimestamp(timestamp: string) {
 		return new Date(timestamp).toLocaleString();
+	}
+
+	function clearHref() {
+		return data.showArchived ? '/?showArchived=1' : '/';
 	}
 </script>
 
@@ -50,12 +54,22 @@
 						value={data.query}
 					/>
 				</div>
+				<div class="col-auto form-check m-0 ms-1">
+					<input
+						class="form-check-input"
+						type="checkbox"
+						id="showArchived"
+						name="showArchived"
+						checked={data.showArchived}
+					/>
+					<label class="form-check-label small" for="showArchived">Show archived</label>
+				</div>
 				<div class="col-auto">
 					<button class="btn btn-primary" type="submit">Search</button>
 				</div>
-				{#if data.query}
+				{#if data.query || data.showArchived}
 					<div class="col-auto">
-						<a class="btn btn-outline-secondary" href="/">Clear</a>
+						<a class="btn btn-outline-secondary" href={clearHref()}>Clear</a>
 					</div>
 				{/if}
 			</form>
@@ -65,6 +79,12 @@
 	{#if !data.databaseConfigured || !data.databaseReady}
 		<div class="alert alert-warning" role="alert">
 			{data.databaseMessage}
+		</div>
+	{/if}
+
+	{#if form?.archiveError}
+		<div class="alert alert-danger" role="alert">
+			{form.archiveError}
 		</div>
 	{/if}
 
@@ -110,23 +130,50 @@
 								<th scope="col">Description</th>
 								<th scope="col">Metadata</th>
 								<th scope="col" class="text-end">Quantity</th>
+								{#if data.isAdmin}
+									<th scope="col" class="text-end">Action</th>
+								{/if}
 							</tr>
 						</thead>
 						<tbody>
 							{#if data.parts.length === 0}
 								<tr>
-									<td colspan="5" class="text-center py-4 text-body-secondary">
+									<td colspan={data.isAdmin ? 6 : 5} class="text-center py-4 text-body-secondary">
 										No parts match the current search.
 									</td>
 								</tr>
 							{:else}
 								{#each data.parts as part}
-									<tr>
-										<td class="fw-semibold">{part.name}</td>
+									<tr class:table-light={part.archivedAt}>
+										<td class="fw-semibold">
+											{part.name}
+											{#if part.archivedAt}
+												<span class="badge bg-secondary ms-2">Archived</span>
+											{/if}
+										</td>
 										<td><code>{part.mfgPartNumber}</code></td>
 										<td>{part.description || '—'}</td>
 										<td class="small text-body-secondary">{formatMetadata(part.metadata)}</td>
 										<td class="text-end fw-semibold">{part.quantity}</td>
+										{#if data.isAdmin}
+											<td class="text-end">
+												{#if part.archivedAt}
+													<form method="POST" action="?/unarchive" style="display: inline;">
+														<input type="hidden" name="id" value={part.id} />
+														<button type="submit" class="btn btn-outline-secondary btn-sm">
+															Unarchive
+														</button>
+													</form>
+												{:else}
+													<form method="POST" action="?/archive" style="display: inline;">
+														<input type="hidden" name="id" value={part.id} />
+														<button type="submit" class="btn btn-outline-danger btn-sm">
+															Archive
+														</button>
+													</form>
+												{/if}
+											</td>
+										{/if}
 									</tr>
 								{/each}
 							{/if}

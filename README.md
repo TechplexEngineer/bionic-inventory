@@ -9,7 +9,7 @@ A SvelteKit inventory microservice for Cloudflare Workers backed by D1 and Drizz
 - Secure, role-scoped API-key provisioning with administrator login
 - Producer and consumer API token authorization, including optional legacy static tokens
 - Full-text search with SQLite FTS5 over part name, manufacturer part number, and description
-- View-only Bootstrap 5 frontend for current inventory and transaction history
+- Bootstrap 5 inventory dashboard with administrator archive / unarchive controls for parts
 - Multi-line inventory transactions with optional `usedIn` context per consumed part
 
 ## Environment
@@ -71,13 +71,14 @@ npx wrangler d1 migrations apply bionic-inventory --remote
 ## Database schema
 
 - `parts` stores each unique part, description, and free-form JSON metadata.
+- `parts.archived_at` soft-deletes parts without losing history; archived parts are hidden unless explicitly requested.
 - `inventory_changes` stores every increment or decrement with actor, recorded time, optional note, and optional `used_in`.
 - `parts_fts` is an FTS5 virtual table maintained by triggers for API search.
 - `api_keys` stores provisioned keys by SHA-256 hash and a non-secret display prefix, with role, creation timestamp, and optional revocation timestamp. Raw API-key values are never stored in D1.
 
 ## Administrator key provisioning
 
-Visit `/login` and authenticate with `ADMIN_PASSWORD`. A successful login creates an HttpOnly, signed `admin_session` cookie and redirects to `/keys`. That page can create producer or consumer keys, list their safe prefixes and status, and revoke keys. Use the Logout control to delete the administrator session and return to `/login`.
+Visit `/login` and authenticate with `ADMIN_PASSWORD`. A successful login creates an HttpOnly, signed `admin_session` cookie and redirects to `/keys`. That page can create producer or consumer keys, list their safe prefixes and status, and revoke keys. Signed-in administrators also get archive / unarchive controls on the main inventory dashboard. Use the Logout control to delete the administrator session and return to `/login`.
 
 The complete raw token is displayed only once, immediately after creation. Copy and store it in an approved secret manager before leaving the confirmation. Later views expose only the prefix, so a lost token must be revoked and replaced.
 
@@ -158,9 +159,29 @@ Pass the token in the `Authorization` header (`Authorization: Bearer <token>`) o
 ### Read inventory
 
 - `GET /api/inventory` — List all catalog parts with stock levels.
+- `GET /api/inventory?showArchived=true` — Include archived parts in the inventory listing.
 - `GET /api/inventory?q=gt2` — Search inventory using full-text search.
 - `GET /api/inventory?mfgPartNumber=PULLEY-GT2-20T&mfgPartNumber=GEAR-50T` — Filter inventory by specific manufacturer part numbers (supports repeating query parameters or comma-separated lists).
 - `GET /api/inventory?id=<uuid-1>&id=<uuid-2>` — Filter inventory by specific part UUIDs (supports repeating query parameters or comma-separated lists).
 - `GET /api/search?q=gear` — Catalog full-text search endpoint.
+- `GET /api/search?q=gear&showArchived=true` — Search including archived parts.
 - `GET /api/history?limit=100` — Inventory change transaction audit history.
 - `GET /api/history?partId=<part-id>` — Filter change history for a specific part.
+
+### Archive or unarchive a part
+
+`PUT /api/parts`
+
+#### Request Body Parameters
+
+| Field | Type | Required / Optional | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | **Required** | Existing part UUID string. |
+| `archived` | `boolean` | **Required** | `true` archives the part; `false` restores it. |
+
+```json
+{
+	"id": "c1f7b8e2-4a5d-4e2b-9f1a-8c3d7e5f2b0a",
+	"archived": true
+}
+```

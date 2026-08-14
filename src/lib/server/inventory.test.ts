@@ -4,7 +4,9 @@ import {
 	createApiKey,
 	extractApiToken,
 	getArrayQueryParam,
+	getBooleanQueryParam,
 	normalizePartInput,
+	normalizePartArchiveInput,
 	normalizeTransactionInput,
 	parseConfiguredTokens,
 	requireApiRole
@@ -179,6 +181,19 @@ describe('inventory helpers', () => {
 		expect(getArrayQueryParam(url4, 'mfgPartNumber')).toBeUndefined();
 	});
 
+	it('parses boolean query parameters for archived filtering', () => {
+		expect(getBooleanQueryParam(new URL('https://example.com/?showArchived=true'), 'showArchived')).toBe(
+			true
+		);
+		expect(getBooleanQueryParam(new URL('https://example.com/?showArchived=0'), 'showArchived')).toBe(
+			false
+		);
+		expect(getBooleanQueryParam(new URL('https://example.com/'), 'showArchived')).toBe(false);
+		expect(() =>
+			getBooleanQueryParam(new URL('https://example.com/?showArchived=maybe'), 'showArchived')
+		).toThrow(/boolean value/i);
+	});
+
 	it('parses configured API tokens and authorizes producer access', async () => {
 		const request = new Request('https://example.com/api/inventory', {
 			headers: {
@@ -279,6 +294,18 @@ describe('inventory helpers', () => {
 					usedIn: null
 				}
 			]
+		});
+	});
+
+	it('normalizes archive payloads for parts', () => {
+		expect(
+			normalizePartArchiveInput({
+				id: 'part-1',
+				archived: true
+			})
+		).toEqual({
+			id: 'part-1',
+			archived: true
 		});
 	});
 
